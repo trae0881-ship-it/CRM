@@ -25,6 +25,6 @@ Open SEO, Open SEO Crawler and Google Maps Scraper Kit require isolated workers.
 
 ## Phase 8 staging and recovery
 
-Use a disposable staging Supabase project first. Apply migrations 001-017 in order and retain the migration history output. Take a verified backup before any production migration; do not assume a backup exists because a provider advertises backups.
+Use a disposable staging Supabase project first. Apply migrations 001-018 in order and retain the migration history output. Take a verified backup before any production migration; do not assume a backup exists because a provider advertises backups.
 
 For recovery, stop writes, preserve audit and error logs, identify the last known good migration, restore to a separate environment, validate Auth/RLS/workflows, and promote only after review. Use a forward corrective migration for schema fixes. Confirm point-in-time recovery and Storage object recovery independently with the Supabase project owner.

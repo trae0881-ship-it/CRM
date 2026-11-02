@@ -6,6 +6,7 @@ const migration = await readFile(new URL("../supabase/migrations/202611020010_pl
 const corrections = await readFile(new URL("../supabase/migrations/202611020011_security_corrections.sql", import.meta.url), "utf8");
 const bootstrap = await readFile(new URL("../supabase/migrations/202611020017_super_admin_bootstrap.sql", import.meta.url), "utf8");
 const bootstrapFunction = await readFile(new URL("../supabase/functions/bootstrap-super-admin/index.ts", import.meta.url), "utf8");
+const organizationHardening = await readFile(new URL("../supabase/migrations/202611020018_organization_admin_hardening.sql", import.meta.url), "utf8");
 
 test("platform migration limits support access and audits platform actions", () => {
   assert.match(migration, /platform_support_grants/);
@@ -46,4 +47,16 @@ test("Super Admin bootstrap is one-time, atomic and server-only", () => {
   assert.match(bootstrapFunction, /x-bootstrap-secret/);
   assert.match(bootstrapFunction, /auth\.getUser/);
   assert.match(bootstrapFunction, /constantTimeEqual/);
+});
+
+test("organization administration is RPC-authorized and protects tenant privileges", () => {
+  assert.match(organizationHardening, /update_organization_member/);
+  assert.match(organizationHardening, /target_role = 'super_admin'/);
+  assert.match(organizationHardening, /target_user = auth\.uid\(\)/);
+  assert.match(organizationHardening, /last active Company Owner/);
+  assert.match(organizationHardening, /Subscription user limit reached/);
+  assert.match(organizationHardening, /organization_membership_changed/);
+  assert.match(organizationHardening, /validate_team_manager/);
+  assert.match(organizationHardening, /assign_team_manager/);
+  assert.match(organizationHardening, /same organization/);
 });

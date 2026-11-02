@@ -43,7 +43,7 @@ Phase 6 local tests cover deterministic assignment, workload balancing, explaina
 
 Phase 7 local tests cover stage validation, customer duplicate matching, target achievement, commission bounds and import-row validation. Customer 360, support, campaign, commission and import RLS require authenticated staging verification.
 
-Phase 8 local status is **COMPLETE AND LOCALLY VERIFIED** for the listed deterministic tests only. Staging authentication, RLS, Edge Functions, provider sandbox, backup restore and two-organization tests are skipped and must be reported as **WAITING FOR DEPLOYMENT**, not passed.
+Phase 8 local status is **COMPLETE AND LOCALLY VERIFIED** for the listed deterministic tests only. The latest local suite contains 38 passing tests, including migration 018 organization-admin authorization assertions. Staging authentication, RLS, Edge Functions, provider sandbox, backup restore and two-organization tests are skipped and must be reported as **WAITING FOR DEPLOYMENT**, not passed. Staging authentication, RLS, Edge Functions, provider sandbox, backup restore and two-organization tests are skipped and must be reported as **WAITING FOR DEPLOYMENT**, not passed.
 
 Phase 9 adds local coverage that verifies the pipeline hardening migration contains tenant stage validation, optimistic concurrency protection and auditable stage history. No database-backed pipeline execution has been run.
 

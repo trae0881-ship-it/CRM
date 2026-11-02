@@ -24,6 +24,10 @@ Deno.serve(async (request) => {
   const { data: membership } = await admin.from("organization_members").select("role,is_active").eq("organization_id", body.organizationId).eq("user_id", caller.user.id).eq("is_active", true).single();
   if (!membership || !["company_owner", "organization_admin"].includes(membership.role)) return json({ error: "You cannot invite members to this organization" }, 403);
   if (body.role === "company_owner" && membership.role !== "company_owner") return json({ error: "Only an owner can invite another owner" }, 403);
+  const { data: subscription } = await admin.from("subscriptions").select("subscription_plans(max_users)").eq("organization_id", body.organizationId).in("status", ["trialing", "active"]).maybeSingle();
+  const maxUsers = Array.isArray(subscription?.subscription_plans) ? subscription?.subscription_plans[0]?.max_users : subscription?.subscription_plans?.max_users;
+  const { count: activeUsers } = await admin.from("organization_members").select("user_id", { count: "exact", head: true }).eq("organization_id", body.organizationId).eq("is_active", true);
+  if (maxUsers !== null && maxUsers !== undefined && (activeUsers ?? 0) >= Number(maxUsers)) return json({ error: "Subscription user limit reached" }, 409);
   const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(body.email, { data: { organization_id: body.organizationId, role: body.role } });
   if (inviteError || !invited.user) return json({ error: inviteError?.message || "Invitation failed" }, 400);
   const { error: profileError } = await admin.from("profiles").upsert({ id: invited.user.id, full_name: body.email });

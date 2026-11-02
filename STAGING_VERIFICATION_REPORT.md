@@ -45,7 +45,7 @@ See [`SUPABASE_SETUP_CHECKLIST.md`](./SUPABASE_SETUP_CHECKLIST.md), [`RLS_TEST_R
 ## Required staging execution
 
 1. Create a disposable Supabase staging project and configure Auth.
-2. Apply migrations `202611020001` through `202611020017` in order after reviewing the SQL. Migration 016 is required for authorized, auditable pipeline movement and migration 017 adds secure Super Admin bootstrap.
+2. Apply migrations `202611020001` through `202611020018` in order after reviewing the SQL. Migration 016 is required for authorized, auditable pipeline movement, migration 017 adds secure Super Admin bootstrap, and migration 018 hardens organization administration.
 3. Create Organization Alpha and Organization Beta.
 4. Create one Super Admin, one Owner, one Organization Admin, one Manager and two Salespeople per organization.
 5. Execute the role and cross-tenant matrix in [`docs/TESTING.md`](C:/Users/pc/Desktop/crm/docs/TESTING.md).

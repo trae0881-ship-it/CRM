@@ -15,7 +15,7 @@ Phase 8 staging status: **WAITING FOR DEPLOYMENT**. No staging project, authenti
 
 ## Required gates before production
 
-1. Apply migrations 001-017 to a disposable staging project after schema review.
+1. Apply migrations 001-018 to a disposable staging project after schema review.
 2. Create two organizations and test every role and cross-tenant denial.
 3. Configure Supabase Auth, Edge Functions, logging and backups.
 4. Deploy and health-check each Growth Tool separately.

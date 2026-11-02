@@ -97,3 +97,12 @@ No feature is marked live or independently verified.
 | Growth Tools | WAITING FOR DEPLOYMENT | Isolated control plane only; no service deployments or health checks |
 | WhatsApp and telephony | WAITING FOR CREDENTIALS | Provider-neutral/manual foundations; official provider credentials and webhook contracts absent |
 | Authentication and cross-tenant RLS | WAITING FOR DEPLOYMENT | No staging project or test identities |
+
+## Latest organization-admin hardening
+
+| Area | Status | Evidence |
+|---|---|---|
+| Organization membership authorization | COMPLETE AND LOCALLY VERIFIED | Migration 018 RPC blocks Super Admin assignment, self-edits, unauthorized owner changes and last-owner removal |
+| Organization profile audit | COMPLETE AND LOCALLY VERIFIED | Profile update is server-authorized and writes an audit event |
+| Subscription seat enforcement | COMPLETE AND LOCALLY VERIFIED | Membership activation and invitation paths reject configured plan limits |
+| Migration 018 database/RLS execution | WAITING FOR DEPLOYMENT | No Supabase staging project or credentials are configured |

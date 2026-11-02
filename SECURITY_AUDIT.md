@@ -23,6 +23,7 @@
 
 - No Supabase project is connected in this workspace.
 - No authenticated staging accounts are available.
+- Migration 018 adds server-authorized organization membership/profile operations, last-owner protection, Super Admin exclusion, subscription seat-limit checks and audit events. It is additive and has not been applied to any Supabase project.
 - No external provider credentials or isolated Growth Tool deployments exist.
 - LeadPro has no declared license and must not be deployed.
 
@@ -31,3 +32,9 @@ These are verification and deployment gaps, not claims of security approval.
 Phase 7 adds RLS-covered customer, support, commission and import records. The migration is prepared but not applied, so live policy behavior remains unverified.
 
 Phase 8 verification could not run because no staging Supabase environment or authenticated test accounts are configured. Direct database and RPC isolation must be tested before production approval.
+
+## Organization administration audit
+
+**COMPLETE AND LOCALLY VERIFIED:** browser membership updates now call the migration 018 authorization RPC rather than directly writing membership roles. The RPC rejects Super Admin assignment, self-changes, unauthorized owner changes, last-owner deactivation and active-seat overflow, and records an audit event. Organization profile changes use an audited RPC.
+
+**WAITING FOR DEPLOYMENT:** migration 018 execution, RLS policy behavior, invitation delivery, seat-limit race behavior and two-organization isolation remain unverified until a disposable staging Supabase project and authenticated Alpha/Beta identities are supplied.

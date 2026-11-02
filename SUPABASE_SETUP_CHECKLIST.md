@@ -17,7 +17,7 @@ Status: **WAITING FOR DEPLOYMENT**
 1. Confirm the project reference and that the target is disposable staging.
 2. Take and verify a backup or snapshot.
 3. Inspect the migration history before running anything.
-4. Apply migrations `202611020001` through `202611020017` exactly once and in order.
+4. Apply migrations `202611020001` through `202611020018` exactly once and in order.
 5. Capture SQL output and migration history.
 6. Verify tables, indexes, functions, triggers and RLS policies.
 7. Run the authentication and two-organization tests in the reports.

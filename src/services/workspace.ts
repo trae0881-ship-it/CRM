@@ -29,7 +29,7 @@ export async function getOrganizationProfile(organizationId: string): Promise<Or
 }
 
 export async function updateOrganizationProfile(organizationId: string, name: string) {
-  const { data, error } = await requireClient().from("organizations").update({ name: name.trim() }).eq("id", organizationId).select("id,name,slug,is_active,created_at").single();
+  const { data, error } = await requireClient().rpc("update_organization_profile", { target_organization: organizationId, target_name: name.trim() });
   if (error) throw error;
   return data as OrganizationProfile;
 }
@@ -83,13 +83,22 @@ export async function listOrganizationMembers(organizationId: string): Promise<O
 }
 
 export async function updateOrganizationMember(organizationId: string, userId: string, patch: { role?: Exclude<UserRole, "super_admin">; is_active?: boolean }) {
-  const { data, error } = await requireClient().from("organization_members").update(patch).eq("organization_id", organizationId).eq("user_id", userId).select("organization_id,user_id,role,is_active,profiles(full_name)").single();
+  const current = await requireClient().from("organization_members").select("role,is_active").eq("organization_id", organizationId).eq("user_id", userId).single();
+  if (current.error) throw current.error;
+  const { error } = await requireClient().rpc("update_organization_member", {
+    target_organization: organizationId,
+    target_user: userId,
+    target_role: patch.role ?? current.data.role,
+    target_active: patch.is_active ?? current.data.is_active,
+  });
   if (error) throw error;
+  const { data, error: reloadError } = await requireClient().from("organization_members").select("organization_id,user_id,role,is_active,profiles(full_name)").eq("organization_id", organizationId).eq("user_id", userId).single();
+  if (reloadError) throw reloadError;
   return { ...data, profiles: Array.isArray(data.profiles) ? (data.profiles[0] ?? null) as { full_name: string } | null : data.profiles as { full_name: string } | null } as OrganizationMember;
 }
 
 export async function assignTeamManager(teamId: string, managerId: string | null) {
-  const { data, error } = await requireClient().from("teams").update({ manager_id: managerId }).eq("id", teamId).select("id,name,manager_id,is_active,created_at").single();
+  const { data, error } = await requireClient().rpc("assign_team_manager", { target_team: teamId, target_manager: managerId });
   if (error) throw error;
   return data as Team;
 }
