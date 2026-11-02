@@ -17,7 +17,7 @@ No Supabase project URL, staging credentials, `supabase/config.toml`, migration 
 | Secrets committed | COMPLETE AND LOCALLY VERIFIED | `.env` is empty; `.env.example` contains placeholders/names only; no private key pattern found |
 | Lockfile | COMPLETE AND LOCALLY VERIFIED | `package-lock.json`, lockfile version 3 |
 | Hostinger fallback | COMPLETE AND LOCALLY VERIFIED | `dist/.htaccess` exists after build |
-| Git commit state | BLOCKED | Git status shows uncommitted tracked and untracked changes, including migrations 019/020 and the new reports/functions. No commit was created. |
+| Git commit state | PASS | Worktree is clean on `main`; no modified or untracked files were present at audit start. No commit or push was created by this audit. |
 
 ## Migration readiness
 
