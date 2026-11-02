@@ -48,3 +48,28 @@ The project has been validated with Node.js/npm in the development workspace. Su
 - [Testing plan](./docs/TESTING.md)
 
 Never commit `.env` files or Supabase service-role keys. Use `.env.example` as the placeholder template.
+
+
+.env 
+
+VITE_SUPABASE_URL=https://your-staging-project.supabase.co
+VITE_SUPABASE_ANON_KEY=replace-with-staging-publishable-key
+
+# Server-side only. Never prefix these with VITE_ or expose them in browser code.
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+META_APP_ID=
+META_APP_SECRET=
+META_VERIFY_TOKEN=
+META_GRAPH_API_VERSION=v21.0
+
+# YouPI-PG server-side only. Configure with Supabase Edge Function secrets.
+YOUPI_API_URL=
+YOUPI_CREATE_PAYMENT_PATH=
+YOUPI_MERCHANT_ID=
+YOUPI_WEBHOOK_SECRET=
+YOUPI_RETURN_URL=
+YOUPI_API_CONTRACT_CONFIRMED=false
+YOUPI_ENABLED=false
+YOUPI_TEST_MODE=true
+
