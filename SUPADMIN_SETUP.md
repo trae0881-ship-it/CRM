@@ -2,6 +2,8 @@
 
 Status: **WAITING FOR DEPLOYMENT**
 
+Frontend URL: `https://purple-oryx-575835.hostingersite.com`
+
 Super Admin is not assignable through public signup. The one-time bootstrap requires:
 
 1. Create a disposable staging Supabase project and apply migrations `202611020001` through `202611020017` in order.
