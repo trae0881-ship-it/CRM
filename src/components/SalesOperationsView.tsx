@@ -13,7 +13,7 @@ export function SalesPipelineView({ membership, onNotify }: { membership: Member
   const load = async () => { try { const [nextStages, nextLeads] = await Promise.all([listPipelineStages(membership.organization_id), listCustomerLeads(membership.organization_id, query)]); setStages(nextStages); setLeads(nextLeads); } catch (error) { onNotify(error instanceof Error ? error.message : "Pipeline data could not be loaded."); } };
   useEffect(() => { void load(); }, [membership.organization_id, query]);
   const grouped = useMemo(() => stages.map((stage) => ({ stage, leads: leads.filter((lead) => lead.pipeline_stage_id === stage.id) })), [leads, stages]);
-  if (!["company_owner", "organization_admin", "manager", "agent"].includes(membership.role)) return <section className="card pending-module"><ShieldCheck size={24} /><h2>Pipeline access is restricted.</h2></section>;
+  if (!["company_owner", "organization_admin", "manager", "agent"].includes(membership.role)) return <section className="card pending-module"><ShieldCheck size={24} /><h2>Pipeline access is restricted.</h2><p>Your current role does not have pipeline access. Contact your organization administrator if access is required.</p></section>;
   const move = async (lead: LeadRecord, stage: PipelineStageRecord) => {
     const lostReason = stage.category === "lost" ? window.prompt("Enter the lost reason") : undefined;
     if (stage.category === "lost" && !lostReason?.trim()) return onNotify("A lost reason is required.");

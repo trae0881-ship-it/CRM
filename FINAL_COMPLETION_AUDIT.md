@@ -106,3 +106,7 @@ No feature is marked live or independently verified.
 | Organization profile audit | COMPLETE AND LOCALLY VERIFIED | Profile update is server-authorized and writes an audit event |
 | Subscription seat enforcement | COMPLETE AND LOCALLY VERIFIED | Membership activation and invitation paths reject configured plan limits |
 | Migration 018 database/RLS execution | WAITING FOR DEPLOYMENT | No Supabase staging project or credentials are configured |
+
+| Google Sheets OAuth and sync | INTEGRATION FOUNDATION ONLY | Server-only OAuth/token encryption, source mappings, incremental sync and admin UI added; real Google credentials and staging authorization pending |
+| Google Sheets organization isolation | COMPLETE AND LOCALLY VERIFIED | Integration tables have organization RLS and Edge Functions validate authenticated organization membership before access |
+| Pipeline role scope | COMPLETE AND LOCALLY VERIFIED | Migration 019 restricts movement to owners/admins, team managers or assigned agents; staging RLS/RPC execution pending |

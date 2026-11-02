@@ -6,13 +6,13 @@ const migrationDir = new URL("../supabase/migrations/", import.meta.url);
 const files = (await readdir(migrationDir)).filter((file) => file.endsWith(".sql")).sort();
 
 test("phase ten migration set is complete and ordered", () => {
-  assert.equal(files.length, 18);
+  assert.equal(files.length, 21);
   assert.deepEqual(files.map((file) => file.slice(0, 12)), [
     "202611020001", "202611020002", "202611020003", "202611020004",
     "202611020005", "202611020006", "202611020007", "202611020008",
     "202611020009", "202611020010", "202611020011", "202611020012",
     "202611020013", "202611020014", "202611020015", "202611020016",
-    "202611020017", "202611020018",
+    "202611020017", "202611020018", "202611020019", "202611020020", "202611020021",
   ]);
 });
 

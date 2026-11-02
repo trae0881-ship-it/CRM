@@ -35,6 +35,7 @@ Deno.serve(async (request) => {
   const updates = { gateway_payment_id: event.paymentId || null, payment_status: status, settlement_status: settlementStatus, gateway_event: event.event, transaction_reference: event.transactionReference || null, webhook_delivery_id: deliveryId, reconciled_at: reconciled ? new Date().toISOString() : null, updated_at: new Date().toISOString() };
   const { error } = await admin.from("payment_transactions").update(updates).eq("id", transaction.id);
   if (error) { await admin.from("payment_webhook_deliveries").update({ processing_status: "failed", error_message: "Payment ledger update failed" }).eq("delivery_id", deliveryId); return json({ error: "Payment processing failed" }, 500); }
+  await admin.from("payment_state_history").insert({ organization_id: transaction.organization_id, payment_transaction_id: transaction.id, previous_status: transaction.payment_status, next_status: status, source: "gateway_webhook", metadata: { deliveryId, event: event.event } });
   if (reconciled) await admin.from("subscriptions").update({ status: "active", current_period_start: new Date().toISOString(), current_period_end: new Date(Date.now() + 30 * 86400000).toISOString() }).eq("id", transaction.subscription_id);
   await admin.from("payment_webhook_deliveries").update({ processing_status: "processed", processed_at: new Date().toISOString() }).eq("delivery_id", deliveryId);
   return json({ received: true });

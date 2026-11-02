@@ -5,6 +5,7 @@ import test from "node:test";
 const webhook = await readFile(new URL("../supabase/functions/youpi-webhook/index.ts", import.meta.url), "utf8");
 const createPayment = await readFile(new URL("../supabase/functions/youpi-create-payment/index.ts", import.meta.url), "utf8");
 const migration = await readFile(new URL("../supabase/migrations/202611020012_youpi_gateway.sql", import.meta.url), "utf8");
+const hardening = await readFile(new URL("../supabase/migrations/202611020021_payment_qr_hardening.sql", import.meta.url), "utf8");
 
 test("YouPI payment creation is server-authoritative", () => {
   assert.match(createPayment, /from\("subscription_plans"\)/);
@@ -30,4 +31,18 @@ test("YouPI Edge Function requires an explicitly reviewed API contract", async (
   const source = await readFile(new URL("../supabase/functions/youpi-create-payment/index.ts", import.meta.url), "utf8");
   assert.match(source, /YOUPI_API_CONTRACT_CONFIRMED/);
   assert.match(source, /YOUPI_CREATE_PAYMENT_PATH/);
+});
+
+test("YouPI order creation is idempotent and payment state transitions are audited", () => {
+  assert.match(createPayment, /idempotencyKey/);
+  assert.match(createPayment, /duplicate: true/);
+  assert.match(hardening, /payment_transactions_idempotency_idx/);
+  assert.match(webhook, /payment_state_history/);
+});
+
+test("QR/manual payment review never auto-approves receipts", () => {
+  assert.match(hardening, /qr_payment_reviews/);
+  assert.match(hardening, /status text not null default 'pending'/);
+  assert.match(hardening, /approved.*rejected.*expired/);
+  assert.doesNotMatch(hardening, /receipt.*payment_status.*RECONCILED/);
 });

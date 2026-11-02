@@ -14,28 +14,18 @@ export type PlatformMember = { organization_id: string; user_id: string; role: s
 export type PaymentGatewayOverview = { provider: string; enabled: boolean; test_mode: boolean; merchant_id: string | null; connection_status: string; total_attempts: number; reconciled_payments: number; awaiting_reconciliation: number; manual_review_payments: number; failed_payments: number; expired_payments: number; reconciled_amount: number; last_successful_webhook: string | null; last_webhook_error: string | null };
 
 export async function getPlatformStats(): Promise<PlatformStats> {
-  const c = client();
-  const [companies, active, trial, suspended, users, activeSubscriptions, expiredSubscriptions, revenue] = await Promise.all([
-    c.from("organizations").select("id", { count: "exact", head: true }),
-    c.from("organizations").select("id", { count: "exact", head: true }).eq("is_active", true),
-    c.from("subscriptions").select("id", { count: "exact", head: true }).eq("status", "trialing"),
-    c.from("organizations").select("id", { count: "exact", head: true }).eq("is_active", false),
-    c.from("profiles").select("id", { count: "exact", head: true }),
-    c.from("subscriptions").select("id", { count: "exact", head: true }).in("status", ["active", "trialing"]),
-    c.from("subscriptions").select("id", { count: "exact", head: true }).in("status", ["expired", "cancelled"]),
-    c.from("subscription_plans").select("price_monthly,subscriptions!inner(status)").eq("subscriptions.status", "active"),
-  ]);
-  const failure = [companies, active, trial, suspended, users, activeSubscriptions, expiredSubscriptions, revenue].find((item) => item.error);
-  if (failure?.error) throw failure.error;
+  const { data, error } = await client().rpc("platform_dashboard_stats");
+  if (error) throw error;
+  const stats = data as Record<string, number>;
   return {
-    companies: companies.count ?? 0,
-    activeCompanies: active.count ?? 0,
-    trialCompanies: trial.count ?? 0,
-    suspendedCompanies: suspended.count ?? 0,
-    users: users.count ?? 0,
-    activeSubscriptions: activeSubscriptions.count ?? 0,
-    expiredSubscriptions: expiredSubscriptions.count ?? 0,
-    recurringRevenue: (revenue.data ?? []).reduce((sum, row) => sum + Number(row.price_monthly || 0), 0),
+    companies: Number(stats.companies || 0),
+    activeCompanies: Number(stats.active_companies || 0),
+    trialCompanies: Number(stats.trial_companies || 0),
+    suspendedCompanies: Number(stats.suspended_companies || 0),
+    users: Number(stats.users || 0),
+    activeSubscriptions: Number(stats.active_subscriptions || 0),
+    expiredSubscriptions: Number(stats.expired_subscriptions || 0),
+    recurringRevenue: Number(stats.recurring_revenue || 0),
   };
 }
 
@@ -46,13 +36,18 @@ export async function listPlatformCompanies() {
 }
 
 export async function createPlatformCompany(name: string, slug: string) {
-  const { data, error } = await client().from("organizations").insert({ name: name.trim(), slug: slug.trim().toLowerCase() }).select("id,name,slug,is_active,created_at").single();
+  const { data, error } = await client().rpc("platform_create_company", { company_name: name, company_slug: slug });
   if (error) throw error;
   return data as PlatformCompany;
 }
 
-export async function updatePlatformCompany(id: string, patch: { name?: string; is_active?: boolean }) {
-  const { data, error } = await client().from("organizations").update(patch).eq("id", id).select("id,name,slug,is_active,created_at").single();
+export async function updatePlatformCompany(id: string, patch: { name?: string; is_active?: boolean; reason?: string }) {
+  if (patch.is_active !== undefined) {
+    const { data, error } = await client().rpc("platform_set_company_status", { target_organization: id, target_active: patch.is_active, status_reason: patch.reason || "" });
+    if (error) throw error;
+    return data as PlatformCompany;
+  }
+  const { data, error } = await client().rpc("platform_update_company", { target_organization: id, company_name: patch.name || "" });
   if (error) throw error;
   return data as PlatformCompany;
 }
@@ -70,8 +65,22 @@ export async function listPlatformSubscriptions() {
 }
 
 export async function updatePlatformSubscription(organizationId: string, planId: string, status: string) {
-  const { error } = await client().from("subscriptions").update({ plan_id: planId, status }).eq("organization_id", organizationId);
+  const { error } = await client().rpc("platform_upsert_subscription", { target_organization: organizationId, target_plan: planId, target_status: status });
   if (error) throw error;
+}
+
+export async function assignPlatformSubscription(organizationId: string, planId: string, status = "trialing") {
+  const { data, error } = await client().rpc("platform_upsert_subscription", { target_organization: organizationId, target_plan: planId, target_status: status });
+  if (error) throw error;
+  return data as PlatformSubscription;
+}
+
+export async function listSubscriptionHistory(organizationId?: string) {
+  let query = client().from("subscription_history").select("*").order("created_at", { ascending: false }).limit(100);
+  if (organizationId) query = query.eq("organization_id", organizationId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
 }
 
 export async function listPlatformAudit() {

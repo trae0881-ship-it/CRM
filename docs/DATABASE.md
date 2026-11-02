@@ -30,6 +30,9 @@ Review and execute only after staging backup and schema inspection, in this orde
 16. `202611020016_phase9_pipeline_hardening.sql`
 17. `202611020017_super_admin_bootstrap.sql`
 18. `202611020018_organization_admin_hardening.sql`
+19. `202611020019_google_sheets_and_pipeline_access.sql`
+20. `202611020020_platform_billing_management.sql`
+21. `202611020021_payment_qr_hardening.sql`
 
 The review found overlapping lead timeline triggers in the prepared Phase 3 migration; migration 010 now scopes its trigger to assignment changes and leaves existing creation/status capture intact. Migration 011 is corrective, migration 012 adds the payment ledger, migration 013 adds disabled-by-default Growth Tools control-plane records, migration 014 adds tenant-scoped automation records, and migration 015 adds Customer 360, campaign costs, target history, commission, support ticket and import-job records. Workflow actions are structured JSON and cannot execute arbitrary user code. These migrations must be applied only after the earlier tables and columns exist. Verify existing constraints before applying because the original migrations are not universally idempotent.
 
@@ -44,3 +47,5 @@ The review found overlapping lead timeline triggers in the prepared Phase 3 migr
 - Phase 10 source audit confirms all 17 migration files are present in numeric order and verifies the pipeline foreign key is declared after the pipeline tables. This is a static check, not database execution.
 - Migration 017 adds a service-role-only, advisory-lock-protected first Super Admin bootstrap RPC and a platform membership update RPC that prevents browser assignment of the Super Admin role and protects the last active Super Admin.
 - Migration 018 adds organization settings, server-authorized membership/profile operations, self-change and privilege-escalation guards, subscription seat-limit checks and audit events. It must be applied before enabling organization administration in staging.
+- Migration 019 adds organization-scoped Google Sheets OAuth state, encrypted-token metadata, source-row mapping and sync history tables. It also hardens pipeline movement by role and assignment/team scope. OAuth tokens are not readable through frontend queries.
+- Migration 021 adds organization-scoped payment idempotency, payment state history and pending QR/manual review records. Receipts remain pending until an authorized review; they never activate a subscription automatically.

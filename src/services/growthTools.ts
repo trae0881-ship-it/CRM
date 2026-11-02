@@ -4,6 +4,8 @@ export type GrowthTool = {
   description: string;
   repository: string;
   license: string;
+  pinnedVersion: string | null;
+  pinnedCommit: string | null;
   defaultAccess: "disabled";
   deployment: "isolated_service";
   status: "not_configured";
@@ -17,6 +19,8 @@ export const growthTools: GrowthTool[] = [
     description: "Self-hosted website SEO audits with graded reports and prioritized recommendations.",
     repository: "https://github.com/alexsilver8/open-seo",
     license: "MIT",
+    pinnedVersion: null,
+    pinnedCommit: null,
     defaultAccess: "disabled",
     deployment: "isolated_service",
     status: "not_configured",
@@ -28,6 +32,8 @@ export const growthTools: GrowthTool[] = [
     description: "Technical website crawling, audit checks, AI crawler comparison and XLSX reporting.",
     repository: "https://github.com/puneetindersingh/open-seo-crawler",
     license: "MIT",
+    pinnedVersion: null,
+    pinnedCommit: null,
     defaultAccess: "disabled",
     deployment: "isolated_service",
     status: "not_configured",
@@ -39,6 +45,8 @@ export const growthTools: GrowthTool[] = [
     description: "Local business discovery with review-before-import lead workflows.",
     repository: "https://github.com/Mahanaicoach/google-maps-scraper-kit",
     license: "MIT",
+    pinnedVersion: null,
+    pinnedCommit: null,
     defaultAccess: "disabled",
     deployment: "isolated_service",
     status: "not_configured",
@@ -50,6 +58,8 @@ export const growthTools: GrowthTool[] = [
     description: "Lead generation and outreach tooling reviewed as a separate service, not a second CRM.",
     repository: "https://github.com/CodePhantom-1/LeadPro-4",
     license: "No SPDX license declared",
+    pinnedVersion: null,
+    pinnedCommit: null,
     defaultAccess: "disabled",
     deployment: "isolated_service",
     status: "not_configured",
@@ -61,6 +71,8 @@ export const growthTools: GrowthTool[] = [
     description: "Self-hosted newsletter and mailing-list manager with PostgreSQL storage.",
     repository: "https://github.com/knadh/listmonk",
     license: "AGPL-3.0",
+    pinnedVersion: null,
+    pinnedCommit: null,
     defaultAccess: "disabled",
     deployment: "isolated_service",
     status: "not_configured",

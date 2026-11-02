@@ -17,20 +17,22 @@ Deno.serve(async (request) => {
   const admin = createClient(supabaseUrl, serviceRole, { auth: { persistSession: false } });
   const { data: userData, error: userError } = await userClient.auth.getUser();
   if (userError || !userData.user) return json({ error: "Authentication required" }, 401);
-  let body: { planId?: string; organizationId?: string };
+  let body: { planId?: string; organizationId?: string; idempotencyKey?: string };
   try { body = await request.json(); } catch { return json({ error: "Invalid request body" }, 400); }
-  if (!body.planId || !body.organizationId) return json({ error: "Subscription plan and organization are required" }, 400);
+  if (!body.planId || !body.organizationId || !body.idempotencyKey?.trim()) return json({ error: "Subscription plan, organization and idempotency key are required" }, 400);
   const { data: membership } = await admin.from("organization_members").select("role,is_active").eq("organization_id", body.organizationId).eq("user_id", userData.user.id).eq("is_active", true).maybeSingle();
   if (!membership || !["company_owner", "organization_admin"].includes(membership.role)) return json({ error: "Organization administrator permission required" }, 403);
   const { data: plan } = await admin.from("subscription_plans").select("id,price_monthly,is_active").eq("id", body.planId).eq("is_active", true).single();
   if (!plan || Number(plan.price_monthly) <= 0) return json({ error: "The selected subscription plan is unavailable" }, 400);
+  const { data: existing } = await admin.from("payment_transactions").select("merchant_order_id,checkout_url,payment_status").eq("organization_id", body.organizationId).eq("idempotency_key", body.idempotencyKey.trim()).maybeSingle();
+  if (existing) return json({ checkoutUrl: existing.checkout_url, orderId: existing.merchant_order_id, paymentStatus: existing.payment_status, duplicate: true });
   const orderId = `ADM-${crypto.randomUUID()}`;
   const amount = Number(plan.price_monthly).toFixed(2);
   const response = await fetch(`${apiUrl.replace(/\/$/, "")}/${createPaymentPath.replace(/^\//, "")}`, { method: "POST", headers: { "content-type": "application/json", "x-merchant-id": merchantId }, body: JSON.stringify({ orderId, amount, currency: "INR", returnUrl, metadata: { subscriptionPlanId: plan.id, organizationId: body.organizationId } }) });
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.paymentId || !payload?.checkoutUrl) return json({ error: "Payment gateway could not create checkout" }, 502);
   const { data: subscription } = await admin.from("subscriptions").select("id").eq("organization_id", body.organizationId).single();
-  const { error } = await admin.from("payment_transactions").insert({ organization_id: body.organizationId, subscription_id: subscription?.id || null, customer_id: userData.user.id, provider: "youpi_pg", merchant_order_id: orderId, gateway_payment_id: payload.paymentId, amount, currency: "INR", payment_status: "ACTIVE", checkout_url: payload.checkoutUrl });
+  const { error } = await admin.from("payment_transactions").insert({ organization_id: body.organizationId, subscription_id: subscription?.id || null, customer_id: userData.user.id, provider: "youpi_pg", merchant_order_id: orderId, idempotency_key: body.idempotencyKey.trim(), gateway_payment_id: payload.paymentId, amount, currency: "INR", payment_status: "ACTIVE", checkout_url: payload.checkoutUrl });
   if (error) return json({ error: "Payment record could not be created" }, 500);
   return json({ checkoutUrl: payload.checkoutUrl, orderId });
 });
