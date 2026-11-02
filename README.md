@@ -49,6 +49,10 @@ The project has been validated with Node.js/npm in the development workspace. Su
 
 Never commit `.env` files or Supabase service-role keys. Use `.env.example` as the placeholder template.
 
+## Hostinger deployment
+
+Build with `npm run build` and upload the complete `dist/` contents, including hidden `dist/.htaccess`, to the domain document root. The fallback is required for direct SPA routes such as `/login` and `/super-admin/dashboard`.
+
 
 .env 
 
@@ -72,4 +76,3 @@ YOUPI_RETURN_URL=
 YOUPI_API_CONTRACT_CONFIRMED=false
 YOUPI_ENABLED=false
 YOUPI_TEST_MODE=true
-

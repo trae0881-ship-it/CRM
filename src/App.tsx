@@ -83,7 +83,14 @@ function App() {
     void getCurrentMembership().then((current) => {
       setMembership(current);
       if (!current) return;
-      if (current.role === "super_admin") setView("Platform");
+      const path = window.location.pathname;
+      if (current.role === "super_admin") {
+        if (path === "/login" || path === "/dashboard" || path === "/") window.history.replaceState({}, "", "/super-admin/dashboard");
+        setView("Platform");
+      } else if (path === "/super-admin/dashboard" || path === "/super-admin/login") {
+        window.history.replaceState({}, "", "/dashboard");
+        setView("Overview");
+      }
       if (current.role === "agent") void getPersonalPerformance(current.organization_id, current.user_id).then(setPerformance).catch((error: Error) => notify(error.message));
       return Promise.all([getWorkspaceSummary(current.organization_id), listTeams(current.organization_id)]).then(([summary, currentTeams]) => {
         setWorkspaceSummary(summary);
@@ -209,6 +216,10 @@ function Integrations({ onNotify }: { onNotify: (message: string) => void }) {
 function PublicPage({ path }: { path: string }) {
   if (path === "/login") return <LoginScreen />;
   if (path === "/super-admin/login") return <SuperAdminLoginScreen />;
+  if (path === "/super-admin/dashboard") {
+    window.history.replaceState({}, "", "/super-admin/login");
+    return <SuperAdminLoginScreen />;
+  }
   if (path === "/signup") return <SignupScreen />;
   if (path === "/reset-password") return <ResetPasswordScreen />;
   const pages: Record<string, { eyebrow: string; title: string; description: string }> = {
