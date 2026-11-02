@@ -225,6 +225,7 @@ function PublicPage({ path }: { path: string }) {
 }
 
 function SuperAdminLoginScreen() {
+  const [mode, setMode] = useState<"login" | "reset">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -233,19 +234,24 @@ function SuperAdminLoginScreen() {
     event.preventDefault();
     setBusy(true);
     try {
-      const { user } = await signIn(email, password);
-      if (!user) throw new Error("Authentication did not return a user.");
-      const current = await getCurrentMembership();
-      if (!current || current.role !== "super_admin") {
-        await signOut();
-        throw new Error("This account is not authorized for Super Admin access.");
+      if (mode === "reset") {
+        await requestPasswordReset(email);
+        setMessage("If the account exists, a reset email has been sent.");
+      } else {
+        const { user } = await signIn(email, password);
+        if (!user) throw new Error("Authentication did not return a user.");
+        const current = await getCurrentMembership();
+        if (!current || current.role !== "super_admin") {
+          await signOut();
+          throw new Error("This account is not authorized for Super Admin access.");
+        }
+        window.location.assign("/super-admin/dashboard");
       }
-      window.location.assign("/super-admin/dashboard");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Super Admin authentication failed");
     } finally { setBusy(false); }
   };
-  return <div className="auth-page"><form className="modal auth-card" onSubmit={submit}><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">PLATFORM SECURITY</p><h1>Super Admin sign in</h1><p className="muted">Use your verified SaaS platform administrator account.</p><label>Email address<input required type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label>Password<input required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{message && <p className="auth-message">{message}</p>}<button className="button primary auth-submit" disabled={busy}>{busy ? "Verifying..." : "Sign in securely"}</button><a className="text-button auth-toggle" href="/login">Back to workspace sign in</a></form></div>;
+  return <div className="auth-page"><form className="modal auth-card" onSubmit={submit}><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">PLATFORM SECURITY</p><h1>{mode === "login" ? "Super Admin sign in" : "Reset Super Admin password"}</h1><p className="muted">{mode === "login" ? "Use your verified SaaS platform administrator account." : "We’ll send a secure reset link if the account exists."}</p><label>Email address<input required type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} /></label>{mode === "login" && <label>Password<input required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>}{message && <p className="auth-message">{message}</p>}<button className="button primary auth-submit" disabled={busy}>{busy ? "Please wait..." : mode === "login" ? "Sign in securely" : "Send reset link"}</button><button type="button" className="text-button auth-toggle" onClick={() => { setMode(mode === "login" ? "reset" : "login"); setMessage(""); }}>{mode === "login" ? "Forgot password?" : "Back to sign in"}</button><a className="text-button auth-toggle" href="/login">Workspace sign in</a></form></div>;
 }
 
 function LoginScreen() {

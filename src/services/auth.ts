@@ -27,8 +27,9 @@ export async function updatePassword(password: string) {
 }
 
 export async function requestPasswordReset(email: string) {
+  const appUrl = window.location.origin;
   const { error } = await requireClient().auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/reset-password`,
+    redirectTo: `${appUrl}/reset-password`,
   });
   if (error) throw error;
 }
