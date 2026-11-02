@@ -208,6 +208,7 @@ function Integrations({ onNotify }: { onNotify: (message: string) => void }) {
 
 function PublicPage({ path }: { path: string }) {
   if (path === "/login") return <LoginScreen />;
+  if (path === "/super-admin/login") return <SuperAdminLoginScreen />;
   if (path === "/signup") return <SignupScreen />;
   if (path === "/reset-password") return <ResetPasswordScreen />;
   const pages: Record<string, { eyebrow: string; title: string; description: string }> = {
@@ -221,6 +222,30 @@ function PublicPage({ path }: { path: string }) {
   };
   const page = pages[path] || { eyebrow: "SALES WORKSPACE", title: "Turn every lead into a better next step.", description: "Adometa CRM helps growing teams capture demand, collaborate clearly, and build a more predictable sales process." };
   return <section className="public-hero"><div className="public-hero-copy"><p className="eyebrow">{page.eyebrow}</p><h1>{page.title}</h1><p>{page.description}</p><div className="public-hero-actions"><a className="button primary" href="/signup">Start free</a><a className="button secondary" href="/features">Explore features</a></div></div><div className="public-hero-card"><div className="public-preview-top"><span className="brand-mark">A</span><strong>adometa</strong><span className="preview-dot" /></div><div className="preview-line wide" /><div className="preview-line" /><div className="preview-stats"><span /><span /><span /></div><div className="preview-table"><i /><i /><i /><i /></div></div></section>;
+}
+
+function SuperAdminLoginScreen() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const { user } = await signIn(email, password);
+      if (!user) throw new Error("Authentication did not return a user.");
+      const current = await getCurrentMembership();
+      if (!current || current.role !== "super_admin") {
+        await signOut();
+        throw new Error("This account is not authorized for Super Admin access.");
+      }
+      window.location.assign("/super-admin/dashboard");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Super Admin authentication failed");
+    } finally { setBusy(false); }
+  };
+  return <div className="auth-page"><form className="modal auth-card" onSubmit={submit}><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">PLATFORM SECURITY</p><h1>Super Admin sign in</h1><p className="muted">Use your verified SaaS platform administrator account.</p><label>Email address<input required type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label>Password<input required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{message && <p className="auth-message">{message}</p>}<button className="button primary auth-submit" disabled={busy}>{busy ? "Verifying..." : "Sign in securely"}</button><a className="text-button auth-toggle" href="/login">Back to workspace sign in</a></form></div>;
 }
 
 function LoginScreen() {

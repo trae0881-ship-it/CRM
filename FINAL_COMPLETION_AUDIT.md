@@ -77,6 +77,15 @@ No feature is marked live or independently verified.
 | External integrations | WAITING FOR CREDENTIALS | No live provider credentials or service deployments |
 | Backup and recovery | WAITING FOR DEPLOYMENT | No backup or restore evidence available |
 
+## Super Admin account and dashboard
+
+| Area | Status | Evidence / blocker |
+|---|---|---|
+| One-time Super Admin bootstrap | INTEGRATION FOUNDATION ONLY | Migration 017 RPC and server-only Edge Function; staging deployment and secret setup pending |
+| Super Admin login route | COMPLETE AND LOCALLY VERIFIED | `/super-admin/login` verifies membership after Supabase Auth sign-in |
+| Platform dashboard | COMPLETE AND LOCALLY VERIFIED | Existing platform metrics, company, billing, gateway, audit and user access views |
+| Last Super Admin protection | INTEGRATION FOUNDATION ONLY | Migration 017 RPC; live RLS/RPC execution pending |
+
 ## Phase 9 completion
 
 | Module | Status | Evidence / blocker |

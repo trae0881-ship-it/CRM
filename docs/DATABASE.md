@@ -28,6 +28,7 @@ Review and execute only after staging backup and schema inspection, in this orde
 14. `202611020014_advanced_automation.sql`
 15. `202611020015_sales_operations.sql`
 16. `202611020016_phase9_pipeline_hardening.sql`
+17. `202611020017_super_admin_bootstrap.sql`
 
 The review found overlapping lead timeline triggers in the prepared Phase 3 migration; migration 010 now scopes its trigger to assignment changes and leaves existing creation/status capture intact. Migration 011 is corrective, migration 012 adds the payment ledger, migration 013 adds disabled-by-default Growth Tools control-plane records, migration 014 adds tenant-scoped automation records, and migration 015 adds Customer 360, campaign costs, target history, commission, support ticket and import-job records. Workflow actions are structured JSON and cannot execute arbitrary user code. These migrations must be applied only after the earlier tables and columns exist. Verify existing constraints before applying because the original migrations are not universally idempotent.
 
@@ -39,4 +40,5 @@ The review found overlapping lead timeline triggers in the prepared Phase 3 migr
 - No rollback migration is supplied. Rollback must be a reviewed forward corrective migration or a verified database restore, never an ad hoc drop or truncate.
 - Live foreign-key, RLS, trigger, RPC and query-plan compatibility has not been verified without a staging database.
 - Migration 016 adds the authorized pipeline movement RPC, optimistic concurrency check, stage ownership validation and stage history write. It must be applied only after migrations 001-015.
-- Phase 10 source audit confirms all 16 migration files are present in numeric order and verifies the pipeline foreign key is declared after the pipeline tables. This is a static check, not database execution.
+- Phase 10 source audit confirms all 17 migration files are present in numeric order and verifies the pipeline foreign key is declared after the pipeline tables. This is a static check, not database execution.
+- Migration 017 adds a service-role-only, advisory-lock-protected first Super Admin bootstrap RPC and a platform membership update RPC that prevents browser assignment of the Super Admin role and protects the last active Super Admin.

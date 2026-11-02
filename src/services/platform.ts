@@ -10,6 +10,7 @@ export type PlatformPlan = { id: string; code: string; name: string; price_month
 export type PlatformSubscription = { organization_id: string; plan_id: string; status: string; trial_ends_at: string | null; current_period_end: string | null; subscription_plans: PlatformPlan | null };
 export type PlatformStats = { companies: number; activeCompanies: number; trialCompanies: number; suspendedCompanies: number; users: number; activeSubscriptions: number; expiredSubscriptions: number; recurringRevenue: number };
 export type PlatformAudit = { id: string; organization_id: string | null; action: string; entity_type: string; created_at: string; metadata: Record<string, unknown> };
+export type PlatformMember = { organization_id: string; user_id: string; role: string; is_active: boolean; organizations: { name: string } | null; profiles: { full_name: string } | null };
 export type PaymentGatewayOverview = { provider: string; enabled: boolean; test_mode: boolean; merchant_id: string | null; connection_status: string; total_attempts: number; reconciled_payments: number; awaiting_reconciliation: number; manual_review_payments: number; failed_payments: number; expired_payments: number; reconciled_amount: number; last_successful_webhook: string | null; last_webhook_error: string | null };
 
 export async function getPlatformStats(): Promise<PlatformStats> {
@@ -88,4 +89,24 @@ export async function getPaymentGatewayOverview(): Promise<PaymentGatewayOvervie
   const { data, error } = await client().rpc("payment_gateway_overview");
   if (error) throw error;
   return data as PaymentGatewayOverview;
+}
+
+export async function listPlatformMembers(): Promise<PlatformMember[]> {
+  const { data, error } = await client().from("organization_members").select("organization_id,user_id,role,is_active,organizations(name),profiles(full_name)").order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((row) => ({
+    ...row,
+    organizations: Array.isArray(row.organizations) ? (row.organizations[0] ?? null) as { name: string } | null : row.organizations as { name: string } | null,
+    profiles: Array.isArray(row.profiles) ? (row.profiles[0] ?? null) as { full_name: string } | null : row.profiles as { full_name: string } | null,
+  })) as PlatformMember[];
+}
+
+export async function updatePlatformMembership(organizationId: string, userId: string, role: string, isActive: boolean) {
+  const { error } = await client().rpc("platform_update_membership", {
+    target_organization: organizationId,
+    target_user: userId,
+    target_role: role,
+    target_active: isActive,
+  });
+  if (error) throw error;
 }

@@ -8,14 +8,14 @@ Phase 8 staging status: **WAITING FOR DEPLOYMENT**. No staging project, authenti
 
 ## Local evidence
 
-- `npm test`: 33 passed.
+- `npm test`: 34 passed.
 - `npm run lint`: passed.
 - `npm run build`: passed.
 - `npm audit --audit-level=high`: 0 vulnerabilities.
 
 ## Required gates before production
 
-1. Apply migrations 001-016 to a disposable staging project after schema review.
+1. Apply migrations 001-017 to a disposable staging project after schema review.
 2. Create two organizations and test every role and cross-tenant denial.
 3. Configure Supabase Auth, Edge Functions, logging and backups.
 4. Deploy and health-check each Growth Tool separately.
