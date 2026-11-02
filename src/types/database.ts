@@ -1,0 +1,48 @@
+export type UserRole = "super_admin" | "company_owner" | "organization_admin" | "manager" | "agent" | "auditor";
+export type LeadStatus = "new" | "contacted" | "qualified" | "follow_up" | "won" | "lost";
+export type LeadEvent = {
+  id: string;
+  organization_id: string;
+  lead_id: string;
+  event_type: string;
+  previous_value: Record<string, unknown> | null;
+  new_value: Record<string, unknown> | null;
+  actor_id: string | null;
+  actor_name: string | null;
+  notes: string | null;
+  previous_owner: string | null;
+  new_owner: string | null;
+  created_at: string;
+};
+
+export type LeadRecord = {
+  id: string;
+  dbId?: string;
+  organization_id: string;
+  external_id: string;
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  company: string | null;
+  city: string | null;
+  state: string | null;
+  source: string;
+  status: LeadStatus;
+  score: number;
+  assigned_to: string | null;
+  original_assigned_to: string | null;
+  priority: "low" | "normal" | "high" | "urgent";
+  next_follow_up_at: string | null;
+  converted_at: string | null;
+  closed_reason: string | null;
+  campaign_id: string | null;
+  pipeline_stage_id?: string | null;
+  meta_lead_id: string | null;
+  meta_page_id: string | null;
+  meta_form_id: string | null;
+  meta_ad_id: string | null;
+  meta_created_time: string | null;
+  custom_fields: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
