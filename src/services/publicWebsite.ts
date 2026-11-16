@@ -5,9 +5,18 @@ const apiOrigin = import.meta.env.VITE_DATABASE_API_URL?.trim().replace(/\/+$/, 
 export type PublicPricingPlan = {
   code: string;
   name: string;
+  description: string;
+  currencyCode: string | null;
   monthlyPrice: number;
+  quarterlyPrice: number;
+  halfYearlyPrice: number;
+  yearlyPrice: number;
   maxUsers: number | null;
+  maxSalespeople: number | null;
+  maxManagers: number | null;
   maxLeads: number | null;
+  trialDays: number;
+  validityDays: number | null;
   features: Record<string, unknown>;
 };
 

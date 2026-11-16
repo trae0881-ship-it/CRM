@@ -34,11 +34,15 @@ test("public enquiry rate limiter resets after its fixed time window", () => {
 
 test("public plans expose only approved fields and reject invalid prices", () => {
   assert.deepEqual(publicPricingPlan({
-    code: "starter", name: "Starter", price_monthly: "1250.00", max_users: 10, max_leads: 5000,
-    features: { reports: "basic", teams: true, internal_note: "not public", api_key: "secret" },
+    code: "starter", name: "Starter", description: "For small sales teams", currency_code: "INR",
+    price_monthly: "1250.00", price_quarterly: "3500.00", price_half_yearly: "6800.00", price_yearly: "12000.00",
+    max_users: 10, max_salespeople: 7, max_managers: 2, max_leads: 5000, trial_days: 14, validity_days: null,
+    features: { reports: "basic", teams: true, sales_pipeline: true, automation: false, internal_note: "not public", api_key: "secret" },
   }), {
-    code: "starter", name: "Starter", monthlyPrice: 1250, maxUsers: 10, maxLeads: 5000,
-    features: { reports: "basic", teams: true },
+    code: "starter", name: "Starter", description: "For small sales teams", currencyCode: "INR",
+    monthlyPrice: 1250, quarterlyPrice: 3500, halfYearlyPrice: 6800, yearlyPrice: 12000,
+    maxUsers: 10, maxSalespeople: 7, maxManagers: 2, maxLeads: 5000, trialDays: 14, validityDays: null,
+    features: { reports: "basic", teams: true, sales_pipeline: true, automation: false },
   });
   assert.throws(() => publicPricingPlan({ price_monthly: "invalid" }), /invalid_plan_price/);
 });

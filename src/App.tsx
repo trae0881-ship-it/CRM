@@ -37,6 +37,7 @@ import { applyRouteMetadata, getAppUrl, redirectToCanonicalDomain } from "./lib/
 import { DomainLinksView, DomainManagementView } from "./components/DomainManagementView";
 import { PublicPage as MarketingPublicPage } from "./components/PublicPages";
 import { PublicLoading } from "./components/PublicLoading";
+import { WorkspaceOnboardingView } from "./components/WorkspaceOnboardingView";
 
 type View = "Overview" | "Leads" | "Campaigns" | "Follow-ups" | "Calling" | "Teams" | "Reports" | "Integrations" | "Company" | "Site Visits" | "Bookings" | "Notifications" | "Statuses" | "Platform" | "Users" | "Growth Tools" | "License Register" | "Database Monitoring" | "Automation" | "Sales Pipeline" | "Customer 360";
 type Status = "New" | "Contacted" | "Qualified" | "Follow-up" | "Won";
@@ -345,7 +346,12 @@ function App() {
   }
   if (!session) return <PublicRoute session={session}><PublicLayout><PublicPage path={window.location.pathname} /></PublicLayout></PublicRoute>;
   if (isSupabaseConfigured && !membershipLoaded) return <div className="public-loading"><div className="muted">Verifying organization access...</div></div>;
-  if (isSupabaseConfigured && (!membership || membershipError)) return <section className="auth-page"><div className="modal auth-card"><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">WORKSPACE ACCESS</p><h1>{membershipError ? "Access could not be verified" : "No active organization"}</h1><p className="muted">{membershipError || "Your account does not have an active organization membership. Contact your organization administrator."}</p>{membershipError && <button className="button secondary auth-submit" onClick={() => setMembershipRefresh((value) => value + 1)}>Try again</button>}<button className="button primary auth-submit" onClick={() => void handleLogout().catch(() => undefined)}>Sign out</button></div></section>;
+  if (isSupabaseConfigured && !membership && !membershipError) return <WorkspaceOnboardingView
+    onRefreshMembership={() => setMembershipRefresh((value) => value + 1)}
+    onSignOut={() => void handleLogout().catch(() => undefined)}
+    onNotify={notify}
+  />;
+  if (isSupabaseConfigured && (!membership || membershipError)) return <section className="auth-page"><div className="modal auth-card"><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">WORKSPACE ACCESS</p><h1>{membershipError ? "Access could not be verified" : "No active organization"}</h1><p className="muted">{membershipError || "Your account does not have an active organization membership."}</p>{membershipError && <button className="button secondary auth-submit" onClick={() => setMembershipRefresh((value) => value + 1)}>Try again</button>}<button className="button primary auth-submit" onClick={() => void handleLogout().catch(() => undefined)}>Sign out</button></div></section>;
   return <ProtectedRoute session={session ?? null} allowAnonymous={!isSupabaseConfigured}><DashboardLayout>{(
     <div className="app-shell">
       {sidebarOpen && <button className="sidebar-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
@@ -433,6 +439,7 @@ function PublicPage({ path }: { path: string }) {
     return <SuperAdminLoginScreen />;
   }
   if (path === "/signup") return <SignupScreen />;
+  if (path === "/workspace/create") return <div className="auth-card workspace-signin-prompt"><p className="eyebrow">WORKSPACE SETUP</p><h1>Sign in to set up your workspace</h1><p className="muted">Confirm your email address and sign in to submit a company workspace request.</p><a className="button primary auth-submit" href="/login">Sign in</a></div>;
   if (path === "/reset-password") return <ResetPasswordScreen />;
   return <MarketingPublicPage path={path} />;
 }
@@ -486,18 +493,20 @@ function LoginScreen() {
 }
 
 function SignupScreen() {
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
-    try { await signUp(email, password); setMessage("Check your email to confirm your account."); }
+    try { await signUp(email, password, fullName, phone); setMessage("Check your email to confirm your account. After confirmation, sign in to submit your company and workspace request."); }
     catch (error) { setMessage(error instanceof Error ? error.message : "Could not create account"); }
     finally { setBusy(false); }
   };
-  return <form className="modal auth-card" onSubmit={submit}><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">GET STARTED</p><h1>Create your workspace</h1><p className="muted">Start organizing your sales pipeline securely.</p><label>Email address<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label>Password<input required minLength={8} type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{message && <p className="auth-message">{message}</p>}<button className="button primary auth-submit" disabled={busy}>{busy ? "Creating..." : "Create account"}</button><a className="text-button auth-toggle" href="/login">Already have an account? Sign in</a></form>;
+  return <form className="modal auth-card" onSubmit={submit}><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">GET STARTED</p><h1>Create your workspace</h1><p className="muted">Create an account first, then submit your company details for approval.</p><label>Full name<input required minLength={2} maxLength={100} autoComplete="name" value={fullName} onChange={(event) => setFullName(event.target.value)} /></label><label>Mobile number<input required type="tel" autoComplete="tel" pattern="[+0-9 ()-]{7,32}" value={phone} onChange={(event) => setPhone(event.target.value)} /></label><label>Email address<input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label>Password<input required minLength={8} type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{message && <p className="auth-message">{message}</p>}<button className="button primary auth-submit" disabled={busy}>{busy ? "Creating..." : "Create account"}</button><a className="text-button auth-toggle" href="/login">Already have an account? Sign in</a></form>;
 }
 
 function ResetPasswordScreen() {

@@ -58,6 +58,7 @@ function formatPrice(price: number) {
 function planAudience(plan: PublicPricingPlan) {
   const caps = [
     plan.maxUsers === null ? "no configured user cap" : `up to ${plan.maxUsers} users`,
+    plan.maxSalespeople === null ? "no configured salesperson cap" : `up to ${plan.maxSalespeople} salespeople`,
     plan.maxLeads === null ? "no configured lead cap" : `up to ${plan.maxLeads.toLocaleString("en-IN")} leads`,
   ];
   return `For teams whose needs fit the configured limits: ${caps.join(" and ")}.`;
@@ -68,6 +69,8 @@ function planFeatures(plan: PublicPricingPlan) {
     lead_management: "Lead management",
     teams: "Team workflows",
     campaigns: "Campaign records",
+    sales_pipeline: "Sales pipeline",
+    automation: "CRM automation",
   };
   const configured = Object.entries(labels).filter(([key]) => plan.features[key] === true).map(([, label]) => label);
   if (typeof plan.features.reports === "string") {
@@ -76,8 +79,24 @@ function planFeatures(plan: PublicPricingPlan) {
   return configured;
 }
 
+type PricingPeriod = "monthly" | "quarterly" | "half_yearly" | "yearly";
+const pricingPeriods: Array<{ value: PricingPeriod; label: string; priceKey: keyof Pick<PublicPricingPlan, "monthlyPrice" | "quarterlyPrice" | "halfYearlyPrice" | "yearlyPrice"> }> = [
+  { value: "monthly", label: "Monthly", priceKey: "monthlyPrice" },
+  { value: "quarterly", label: "Quarterly", priceKey: "quarterlyPrice" },
+  { value: "half_yearly", label: "Half-yearly", priceKey: "halfYearlyPrice" },
+  { value: "yearly", label: "Yearly", priceKey: "yearlyPrice" },
+];
+
+function formatPlanPrice(plan: PublicPricingPlan, period: PricingPeriod) {
+  const selected = pricingPeriods.find((item) => item.value === period);
+  const price = selected ? plan[selected.priceKey] : plan.monthlyPrice;
+  const amount = `${formatPrice(price)}${plan.currencyCode ? ` ${plan.currencyCode}` : " (currency not specified)"}`;
+  return `${amount} / ${selected?.label.toLowerCase() || "month"}`;
+}
+
 export function PricingPage() {
   const [plans, setPlans] = useState<PublicPricingPlan[]>([]);
+  const [periodByPlan, setPeriodByPlan] = useState<Record<string, PricingPeriod>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -92,14 +111,15 @@ export function PricingPage() {
 
   if (loading) return <PublicLoading message="Loading configured plan information" />;
   return <div className="marketing-page">
-    <PublicHero eyebrow="PRICING" title="Plan details from Adometa's active configuration." description="Plan names, monthly amounts and limits are loaded from active subscription plan records. The current schema does not define a currency; confirm currency and commercial terms with the team before purchase." />
+    <PublicHero eyebrow="PRICING" title="Plan details from Adometa's active configuration." description="Plan names, configured billing-cycle amounts, currency and limits are loaded from active subscription plan records. Confirm taxes, payment terms and any unconfigured commercial details with the team before purchase." />
     {error ? <section className="card pricing-state" role="alert"><CircleHelp /><h2>Current plan details are unavailable</h2><p>{error} No prices or limits are guessed or substituted.</p><a className="button primary" href="/contact">Ask about plans</a></section>
       : plans.length === 0 ? <section className="card pricing-state"><CircleHelp /><h2>No active plans are published</h2><p>Contact Adometa for current plan information.</p><a className="button primary" href="/contact">Ask about plans</a></section>
       : <div className="pricing-grid">{plans.map((plan) => {
-        const price = `${formatPrice(plan.monthlyPrice)} / month (currency not specified)`;
+        const period = periodByPlan[plan.code] || "monthly";
+        const price = formatPlanPrice(plan, period);
         const features = planFeatures(plan);
         const message = createPlanWhatsAppMessage(plan.name, price);
-        return <article className="pricing-card" key={plan.code}><p className="eyebrow">ADOMETA CRM PLAN</p><h2>{plan.name}</h2><p className="plan-price">{price}</p><p className="plan-audience">{planAudience(plan)}</p><div className="plan-limits"><span>{plan.maxUsers === null ? "No configured user limit" : `${plan.maxUsers} users maximum`}</span><span>{plan.maxLeads === null ? "No configured lead limit" : `${plan.maxLeads.toLocaleString("en-IN")} leads maximum`}</span></div><h3>Configured features</h3>{features.length ? <ul>{features.map((feature) => <li key={feature}><Check size={15} />{feature}</li>)}</ul> : <p className="muted">Ask Adometa to confirm included features for this plan.</p>}<p className="plan-caveat">Checkout, taxes and payment terms must be confirmed with Adometa. Advanced integrations depend on provider setup.</p><a className="button primary whatsapp-button" href={createWhatsAppUrl(message)} target="_blank" rel="noopener noreferrer"><MessageCircle size={16} />Get Started on WhatsApp</a></article>;
+        return <article className="pricing-card" key={plan.code}><p className="eyebrow">ADOMETA CRM PLAN</p><h2>{plan.name}</h2>{plan.description && <p className="plan-audience">{plan.description}</p>}<p className="plan-price">{price}</p><label className="pricing-period-select">Billing period<select value={period} onChange={(event) => setPeriodByPlan((current) => ({ ...current, [plan.code]: event.target.value as PricingPeriod }))}>{pricingPeriods.map((item) => <option value={item.value} key={item.value}>{item.label} · {formatPlanPrice(plan, item.value)}</option>)}</select></label><p className="plan-audience">{planAudience(plan)}</p><div className="plan-limits"><span>{plan.maxUsers === null ? "No configured user limit" : `${plan.maxUsers} users maximum`}</span><span>{plan.maxSalespeople === null ? "No configured salesperson limit" : `${plan.maxSalespeople} salespeople maximum`}</span><span>{plan.maxLeads === null ? "No configured lead limit" : `${plan.maxLeads.toLocaleString("en-IN")} leads maximum`}</span>{plan.trialDays > 0 && <span>{plan.trialDays}-day trial (subject to approval)</span>}</div><h3>Configured features</h3>{features.length ? <ul>{features.map((feature) => <li key={feature}><Check size={15} />{feature}</li>)}</ul> : <p className="muted">Ask Adometa to confirm included features for this plan.</p>}<p className="plan-caveat">Payment confirmation, taxes and any unconfigured commercial terms must be confirmed with Adometa. No online checkout is initiated here.</p><a className="button primary whatsapp-button" href={createWhatsAppUrl(message)} target="_blank" rel="noopener noreferrer"><MessageCircle size={16} />Get Started on WhatsApp</a></article>;
       })}</div>}
   </div>;
 }

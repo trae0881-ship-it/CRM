@@ -214,3 +214,82 @@
  .database-blocked strong{font-size:12px}
  .database-blocked p{margin:5px 0 0;color:#7c5c37;font-size:11px}
  @media(max-width:760px){.database-status-grid{grid-template-columns:1fr}.database-actions{flex-direction:column}.database-actions .button{width:100%}.database-sync-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+ .workspace-onboarding{min-height:100vh;padding:24px clamp(16px,5vw,64px) 32px;background:linear-gradient(135deg,#f7f6ff,#f4f7ff);color:var(--ink)}
+ .onboarding-header{max-width:980px;margin:0 auto 34px;display:flex;align-items:center;justify-content:space-between}
+ .onboarding-header .brand{padding:0;text-decoration:none}
+ .onboarding-account{display:flex;align-items:center;gap:18px;color:var(--muted);font-size:11px}
+ .workspace-onboarding-card{max-width:700px;margin:0 auto;padding:clamp(22px,5vw,42px);border:1px solid #e7e5f6;border-radius:20px;background:#fff;box-shadow:0 20px 60px #302b6010}
+ .workspace-onboarding-card h1{margin:0 0 10px;font:700 clamp(24px,4vw,32px) "Plus Jakarta Sans";letter-spacing:-1px}
+ .workspace-onboarding-card>.muted{max-width:590px;line-height:1.7}
+ .onboarding-icon{width:42px;height:42px;margin-bottom:20px;border-radius:13px;display:grid;place-items:center;background:#eeecff;color:#5144e5}
+ .onboarding-form{margin-top:24px}
+ .onboarding-form label,.subscription-request-form label,.plan-editor-modal label,.workspace-review-modal label{display:block;margin:13px 0;color:#52607b;font-size:10px;font-weight:700}
+ .onboarding-form input,.onboarding-form select,.onboarding-form textarea,.subscription-request-form input,.subscription-request-form select,.subscription-request-form textarea,.plan-editor-modal input,.plan-editor-modal select,.plan-editor-modal textarea,.workspace-review-modal input,.workspace-review-modal select,.workspace-review-modal textarea,.subscription-config-modal input,.subscription-config-modal select{display:block;width:100%;margin-top:6px;padding:10px 11px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font:inherit;font-size:11px}
+ .onboarding-form textarea,.subscription-request-form textarea,.plan-editor-modal textarea,.workspace-review-modal textarea{min-height:78px;resize:vertical}
+ .onboarding-form input:focus,.onboarding-form select:focus,.onboarding-form textarea:focus,.subscription-request-form input:focus,.subscription-request-form select:focus,.subscription-request-form textarea:focus,.plan-editor-modal input:focus,.plan-editor-modal select:focus,.plan-editor-modal textarea:focus,.workspace-review-modal input:focus,.workspace-review-modal select:focus,.workspace-review-modal textarea:focus{outline:2px solid #c9c4ff;border-color:#8f86ed}
+ .onboarding-form>.button{width:100%;margin-top:17px}
+ .onboarding-footer{max-width:700px;margin:18px auto 0;display:flex;align-items:center;gap:7px;color:#8b92a7;font-size:10px}
+ .onboarding-footer svg{color:#665cda}
+ .onboarding-account .text-button{white-space:nowrap}
+ .request-state{display:flex;flex-direction:column;gap:8px;margin:22px 0 0;padding:16px;border:1px solid #e3e1f4;border-radius:12px;background:#faf9ff;color:#626b82;font-size:11px;line-height:1.5}
+ .request-state strong{color:var(--ink);font-size:13px}
+ .request-state .button{align-self:flex-start;margin-top:5px}
+ .success-state{background:#f1fbf7;border-color:#cfeee0}
+ .info-state{background:#f3f5ff;border-color:#dbe0ff}
+ .rejection-state{background:#fff5f5;border-color:#f6d5d9}
+ .request-history{margin-top:28px;padding-top:18px;border-top:1px solid var(--line)}
+ .request-history h2,.subscription-request-form h3,.subscription-request-history h3{margin:0 0 12px;font:700 13px "Plus Jakarta Sans"}
+ .request-history-row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #f1f2f6;color:var(--muted);font-size:10px}
+ .request-history-row strong{text-transform:capitalize;color:#5144e5}
+ .request-history-row time{white-space:nowrap}
+ .workspace-signin-prompt{max-width:460px;margin:60px auto;padding:30px;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 14px 40px #16133a12}
+ .workspace-signin-prompt .button{margin-top:22px;text-decoration:none}
+ .table-toolbar{display:flex;align-items:center;gap:10px;padding:0 22px 14px}
+ .table-toolbar input,.table-toolbar select{min-width:0;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font-size:10px}
+ .table-toolbar input{flex:1}
+ .table-toolbar select{max-width:200px}
+ .table-secondary{display:block;margin-top:4px;color:#929bad;font-size:9px}
+ .table-pagination{display:flex;justify-content:space-between;align-items:center;padding:12px 22px;color:#929bad;font-size:10px}
+ .table-pagination>div{display:flex;gap:7px}
+ .table-pagination .button{padding:7px 10px;font-size:9px}
+ .section-actions{display:flex;align-items:center;gap:12px}
+ .section-actions .button{padding:7px 10px;font-size:9px}
+ .subscription-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;padding:0 22px 22px}
+ .subscription-summary>div{padding:13px;border:1px solid #eeeff5;border-radius:10px;background:#fbfcff}
+ .subscription-summary small,.subscription-summary strong{display:block}
+ .subscription-summary small{margin-bottom:6px;color:#9099ad;font-size:9px}
+ .subscription-summary strong{font-size:11px;color:var(--ink);text-transform:capitalize}
+ .subscription-summary .seat-summary{display:flex;align-items:center;gap:9px;color:#5144e5}
+ .seat-summary svg{flex:0 0 auto}
+ .company-subscription{margin-bottom:18px}
+ .subscription-request-form{padding:20px 22px;border-top:1px solid #f0f1f5}
+ .subscription-request-form>h3{margin-bottom:12px}
+ .subscription-request-form>.button{margin-top:12px}
+ .subscription-request-history{padding:18px 22px;border-top:1px solid #f0f1f5}
+ .subscription-request-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:7px 14px;padding:12px 0;border-bottom:1px solid #f1f2f6;color:#68728a;font-size:10px}
+ .subscription-request-row>strong{color:var(--ink)}
+ .subscription-request-row>span{text-transform:capitalize;color:#5144e5}
+ .subscription-request-row time{white-space:nowrap}
+ .subscription-request-row p{grid-column:1/-1;margin:0;color:#7a849a;line-height:1.5}
+ .subscription-config-modal,.plan-editor-modal,.workspace-review-modal{width:min(720px,100%);max-height:calc(100vh - 40px);overflow:auto}
+ .plan-editor-modal{width:min(850px,100%)}
+ .workspace-review-modal{width:min(680px,100%)}
+ .modal-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+ .modal-head h2{margin-bottom:6px}
+ .modal-head .eyebrow{margin-bottom:5px}
+ .modal-head .muted{margin:0 0 12px}
+ .modal label.checkbox-field{display:flex;align-items:flex-start;gap:9px;margin:14px 0;color:#52607b;line-height:1.5}
+ .modal label.checkbox-field input{width:auto;flex:0 0 auto;margin:1px 0 0}
+ .manual-payment-notice{margin:14px 0;padding:12px;border:1px solid #f1dfb8;border-radius:9px;background:#fffaf0;color:#84682c;font-size:10px;line-height:1.6}
+ .manual-payment-fieldset,.plan-feature-fieldset{margin:16px 0;padding:12px;border:1px solid var(--line);border-radius:10px}
+ .manual-payment-fieldset legend,.plan-feature-fieldset legend{padding:0 5px;color:#59627b;font-size:10px;font-weight:800}
+ .manual-payment-fieldset .contact-field-grid{margin-top:4px}
+ .plan-feature-fieldset p{margin:6px 0;color:#8b93a5;font-size:9px;line-height:1.6}
+ .plan-price-grid,.plan-limits-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+ .plan-limits-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+ .form-error{padding:10px;border-radius:8px;font-size:10px;line-height:1.5}
+ .pricing-period-select{display:block;margin:10px 0;color:#7a849a;font-size:9px;font-weight:700}
+ .pricing-period-select select{display:block;width:100%;margin-top:5px;padding:8px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);font-size:10px}
+ @media(max-width:900px){.subscription-summary{grid-template-columns:repeat(3,minmax(0,1fr))}.plan-price-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+ @media(max-width:700px){.workspace-onboarding{padding:18px 12px 28px}.onboarding-header{margin-bottom:20px}.onboarding-account{gap:8px;font-size:9px}.workspace-onboarding-card{padding:22px 17px;border-radius:15px}.table-toolbar{padding:0 14px 12px;flex-direction:column;align-items:stretch}.table-toolbar select{max-width:none}.table-pagination{padding:12px 14px}.subscription-summary{grid-template-columns:repeat(2,minmax(0,1fr));padding:0 14px 16px}.subscription-request-form,.subscription-request-history{padding:16px 14px}.subscription-request-row{grid-template-columns:1fr auto}.subscription-request-row time{grid-column:1/-1}.section-actions .button{white-space:normal}.plan-limits-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.modal-backdrop{padding:10px}.subscription-config-modal,.plan-editor-modal,.workspace-review-modal{max-height:calc(100vh - 20px);padding:19px}}
+ @media(max-width:480px){.onboarding-account>span{display:none}.request-history-row{flex-wrap:wrap}.request-history-row time{width:100%}.subscription-summary{grid-template-columns:1fr 1fr}.plan-price-grid,.plan-limits-grid,.contact-field-grid{grid-template-columns:1fr}.section-actions{gap:6px}.section-actions .button{padding:7px}.subscription-request-row{grid-template-columns:1fr}.subscription-request-row time{grid-column:auto}.modal-actions{flex-wrap:wrap}.modal-actions .button{flex:1}}

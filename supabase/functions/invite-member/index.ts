@@ -21,13 +21,50 @@ Deno.serve(async (request) => {
   if (callerError || !caller.user) return json({ error: "Invalid session" }, 401);
   const body = await request.json().catch(() => null) as { organizationId?: string; email?: string; role?: string } | null;
   if (!body?.organizationId || !body.email || !body.role || !allowedRoles.has(body.role)) return json({ error: "Invalid invitation details" }, 400);
-  const { data: membership } = await admin.from("organization_members").select("role,is_active").eq("organization_id", body.organizationId).eq("user_id", caller.user.id).eq("is_active", true).single();
+  const email = body.email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return json({ error: "Enter a valid email address" }, 400);
+  const { data: membership, error: membershipError } = await admin.from("organization_members").select("role,is_active").eq("organization_id", body.organizationId).eq("user_id", caller.user.id).eq("is_active", true).maybeSingle();
+  if (membershipError) return json({ error: "Organization membership could not be verified" }, 500);
   if (!membership || !["company_owner", "organization_admin"].includes(membership.role)) return json({ error: "You cannot invite members to this organization" }, 403);
   if (body.role === "company_owner" && membership.role !== "company_owner") return json({ error: "Only an owner can invite another owner" }, 403);
-  const { data: subscription } = await admin.from("subscriptions").select("subscription_plans(max_users)").eq("organization_id", body.organizationId).in("status", ["trialing", "active"]).maybeSingle();
-  const maxUsers = Array.isArray(subscription?.subscription_plans) ? subscription?.subscription_plans[0]?.max_users : subscription?.subscription_plans?.max_users;
-  const { count: activeUsers } = await admin.from("organization_members").select("user_id", { count: "exact", head: true }).eq("organization_id", body.organizationId).eq("is_active", true);
-  if (maxUsers !== null && maxUsers !== undefined && (activeUsers ?? 0) >= Number(maxUsers)) return json({ error: "Subscription user limit reached" }, 409);
+  const { data: organization, error: organizationError } = await admin.from("organizations")
+    .select("is_active,approval_status").eq("id", body.organizationId).maybeSingle();
+  if (organizationError) return json({ error: "Organization status could not be verified" }, 500);
+  if (!organization?.is_active || organization.approval_status !== "approved") return json({ error: "This workspace is not approved and active" }, 403);
+  const { data: subscription, error: subscriptionError } = await admin.from("subscriptions")
+    .select("status,current_period_start,current_period_end,trial_ends_at,has_custom_salesperson_limit,salesperson_limit_override,subscription_plans(max_users,max_salespeople,max_managers,max_admins)")
+    .eq("organization_id", body.organizationId).maybeSingle();
+  if (subscriptionError) return json({ error: "Subscription limits could not be verified" }, 500);
+  if (!subscription || !["trialing", "active"].includes(subscription.status)
+    || (subscription.current_period_start && new Date(subscription.current_period_start) > new Date())
+    || (subscription.status === "trialing"
+      ? subscription.trial_ends_at || subscription.current_period_end
+      : subscription.current_period_end
+    ) && new Date(subscription.status === "trialing"
+      ? subscription.trial_ends_at || subscription.current_period_end
+      : subscription.current_period_end!) <= new Date()) {
+    return json({ error: "An active subscription is required to invite members" }, 403);
+  }
+  const plan = Array.isArray(subscription.subscription_plans) ? subscription.subscription_plans[0] : subscription.subscription_plans;
+  const { count: activeUsers, error: activeUsersError } = await admin.from("organization_members")
+    .select("user_id", { count: "exact", head: true }).eq("organization_id", body.organizationId).eq("is_active", true).neq("role", "super_admin");
+  if (activeUsersError) return json({ error: "Active user count could not be verified" }, 500);
+  if (plan?.max_users !== null && plan?.max_users !== undefined && (activeUsers ?? 0) >= Number(plan.max_users)) {
+    return json({ error: "Subscription total user limit reached" }, 409);
+  }
+  const roleLimit = body.role === "agent"
+    ? subscription.has_custom_salesperson_limit ? subscription.salesperson_limit_override : plan?.max_salespeople
+    : body.role === "manager" ? plan?.max_managers
+      : ["company_owner", "organization_admin"].includes(body.role) ? plan?.max_admins : null;
+  const countRole = body.role === "company_owner" || body.role === "organization_admin"
+    ? ["company_owner", "organization_admin"] : [body.role];
+  if (roleLimit !== null && roleLimit !== undefined) {
+    const { count, error: roleCountError } = await admin.from("organization_members")
+      .select("user_id", { count: "exact", head: true })
+      .eq("organization_id", body.organizationId).eq("is_active", true).in("role", countRole);
+    if (roleCountError) return json({ error: "Role-specific seat usage could not be verified" }, 500);
+    if ((count ?? 0) >= Number(roleLimit)) return json({ error: "Subscription limit for this role has been reached" }, 409);
+  }
   const inviteOptions: { data: { organization_id: string; role: string }; redirectTo?: string } = {
     data: { organization_id: body.organizationId, role: body.role },
   };
@@ -37,14 +74,14 @@ Deno.serve(async (request) => {
   } else if (typeof domainConfig?.canonicalHostname === "string" && domainConfig.canonicalHostname) {
     inviteOptions.redirectTo = `https://${domainConfig.canonicalHostname}/`;
   }
-  const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(body.email, inviteOptions);
+  const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, inviteOptions);
   if (inviteError || !invited.user) return json({ error: inviteError?.message || "Invitation failed" }, 400);
-  const { error: profileError } = await admin.from("profiles").upsert({ id: invited.user.id, full_name: body.email });
+  const { error: profileError } = await admin.from("profiles").upsert({ id: invited.user.id, full_name: email });
   if (profileError) return json({ error: profileError.message }, 500);
   const { error: memberError } = await admin.from("organization_members").upsert({ organization_id: body.organizationId, user_id: invited.user.id, role: body.role });
   if (memberError) return json({ error: memberError.message }, 500);
   const rawToken = crypto.randomUUID();
-  const { error: invitationError } = await admin.from("invitations").insert({ organization_id: body.organizationId, email: body.email.toLowerCase(), role: body.role, invited_by: caller.user.id, token_hash: await hash(rawToken), expires_at: new Date(Date.now() + 7 * 86400000).toISOString() });
+  const { error: invitationError } = await admin.from("invitations").insert({ organization_id: body.organizationId, email, role: body.role, invited_by: caller.user.id, token_hash: await hash(rawToken), expires_at: new Date(Date.now() + 7 * 86400000).toISOString() });
   if (invitationError) return json({ error: invitationError.message }, 500);
   return json({ invitedUserId: invited.user.id });
 });

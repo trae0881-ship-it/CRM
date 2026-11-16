@@ -49,11 +49,16 @@ export function createRateLimiter({ limit = 5, windowMs = 10 * 60 * 1000, now = 
 }
 
 export function publicPricingPlan(row) {
-  const monthlyPrice = Number(row.price_monthly);
-  if (!Number.isFinite(monthlyPrice) || monthlyPrice < 0) throw new Error("invalid_plan_price");
+  const prices = {
+    monthlyPrice: Number(row.price_monthly),
+    quarterlyPrice: Number(row.price_quarterly),
+    halfYearlyPrice: Number(row.price_half_yearly),
+    yearlyPrice: Number(row.price_yearly),
+  };
+  if (Object.values(prices).some((price) => !Number.isFinite(price) || price < 0)) throw new Error("invalid_plan_price");
   const sourceFeatures = row.features && typeof row.features === "object" && !Array.isArray(row.features) ? row.features : {};
   const features = Object.fromEntries(
-    ["reports", "lead_management", "teams", "campaigns"].filter((key) => {
+    ["reports", "lead_management", "teams", "campaigns", "sales_pipeline", "automation"].filter((key) => {
       const value = sourceFeatures[key];
       return typeof value === "boolean" || typeof value === "string" || typeof value === "number";
     }).map((key) => [key, sourceFeatures[key]]),
@@ -61,9 +66,15 @@ export function publicPricingPlan(row) {
   return {
     code: row.code,
     name: row.name,
-    monthlyPrice,
-    maxUsers: row.max_users,
-    maxLeads: row.max_leads,
+    description: String(row.description ?? ""),
+    currencyCode: row.currency_code || null,
+    ...prices,
+    maxUsers: row.max_users === null ? null : Number(row.max_users),
+    maxSalespeople: row.max_salespeople === null ? null : Number(row.max_salespeople),
+    maxManagers: row.max_managers === null ? null : Number(row.max_managers),
+    maxLeads: row.max_leads === null ? null : Number(row.max_leads),
+    trialDays: Number(row.trial_days || 0),
+    validityDays: row.validity_days === null ? null : Number(row.validity_days),
     features,
   };
 }

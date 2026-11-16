@@ -620,7 +620,7 @@ export function createDatabaseServer() {
     if (url.pathname === "/public/plans" && request.method === "GET") {
       try {
         const { data, error } = await getSupabaseAdmin().from("subscription_plans")
-          .select("code,name,price_monthly,max_users,max_leads,features")
+          .select("code,name,description,currency_code,price_monthly,price_quarterly,price_half_yearly,price_yearly,max_users,max_salespeople,max_managers,max_leads,trial_days,validity_days,features")
           .eq("is_active", true)
           .order("price_monthly", { ascending: true });
         if (error) throw error;

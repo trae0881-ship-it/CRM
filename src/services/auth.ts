@@ -14,11 +14,18 @@ export async function signIn(email: string, password: string) {
   return data;
 }
 
-export async function signUp(email: string, password: string) {
+export async function signUp(email: string, password: string, fullName: string, phone: string) {
+  const cleanName = fullName.trim();
+  const cleanPhone = phone.trim();
+  if (cleanName.length < 2 || cleanName.length > 100) throw new Error("Full name must be between 2 and 100 characters.");
+  if (!/^[+0-9 ()-]{7,32}$/.test(cleanPhone)) throw new Error("Enter a valid mobile number.");
   const { error } = await requireClient().auth.signUp({
-    email,
+    email: email.trim().toLowerCase(),
     password,
-    options: { emailRedirectTo: await getAppUrl("/") },
+    options: {
+      emailRedirectTo: await getAppUrl("/workspace/create"),
+      data: { full_name: cleanName, phone: cleanPhone },
+    },
   });
   if (error) throw error;
 }

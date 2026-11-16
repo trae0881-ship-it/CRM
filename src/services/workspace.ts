@@ -9,6 +9,36 @@ export type OrganizationSettings = { organization_id: string; contact_email: str
 export type OrganizationAuditEntry = { id: string; action: string; entity_type: string; created_at: string; metadata: Record<string, unknown> };
 export type WorkspaceSummary = { organizationName: string; organizationIsActive: boolean; employees: number; teams: number; leads: number; bookings: number; calls: number };
 export type PersonalPerformance = { assignedLeads: number; newLeads: number; contactedLeads: number; calls: number; followUpsDue: number; followUpsCompleted: number; visitsScheduled: number; visitsCompleted: number; bookings: number; lostLeads: number };
+export type AvailableSubscriptionPlan = {
+  id: string; code: string; name: string; description: string; currency_code: string | null;
+  price_monthly: number; price_quarterly: number; price_half_yearly: number; price_yearly: number;
+  max_users: number | null; max_salespeople: number | null; max_managers: number | null;
+  max_admins: number | null; max_leads: number | null; trial_days: number; validity_days: number | null;
+  features: Record<string, unknown>;
+};
+export type WorkspaceRequest = {
+  id: string; requested_by: string; company_name: string; workspace_name: string;
+  contact_phone: string; requested_plan_id: string; additional_information: string;
+  status: string; admin_message: string | null; rejection_reason: string | null;
+  created_at: string; updated_at: string;
+};
+export type OrganizationSubscription = {
+  organization_id: string; plan_id: string; status: string; billing_period: string;
+  current_period_start: string | null; current_period_end: string | null;
+  trial_ends_at: string | null; has_custom_salesperson_limit: boolean;
+  salesperson_limit_override: number | null;
+  subscription_plans: AvailableSubscriptionPlan | null;
+};
+export type OrganizationChangeRequest = {
+  id: string; organization_id: string; request_type: string; target_plan_id: string | null;
+  requested_salespeople: number | null; message: string; status: string;
+  requester_followup: string; admin_message: string | null; created_at: string;
+};
+export type WorkspaceAccessStatus = {
+  organization_id: string; organization_name: string; approval_status: string;
+  organization_active: boolean; subscription_status: string | null;
+  plan_name: string | null; current_period_end: string | null; billing_period: string | null;
+};
 
 const requireClient = () => {
   if (!supabase) throw new Error("Supabase is not configured.");
@@ -146,6 +176,102 @@ export async function inviteMember(organizationId: string, email: string, role: 
   const { data, error } = await client.functions.invoke("invite-member", { body: { organizationId, email: email.trim(), role } });
   if (error) throw error;
   return data;
+}
+
+export async function listAvailableSubscriptionPlans(): Promise<AvailableSubscriptionPlan[]> {
+  const { data, error } = await requireClient().from("subscription_plans")
+    .select("id,code,name,description,currency_code,price_monthly,price_quarterly,price_half_yearly,price_yearly,max_users,max_salespeople,max_managers,max_admins,max_leads,trial_days,validity_days,features")
+    .eq("is_active", true).order("price_monthly");
+  if (error) throw error;
+  return (data ?? []) as AvailableSubscriptionPlan[];
+}
+
+export async function listMyWorkspaceRequests(): Promise<WorkspaceRequest[]> {
+  const { data, error } = await requireClient().from("workspace_requests")
+    .select("id,requested_by,company_name,workspace_name,contact_phone,requested_plan_id,additional_information,status,admin_message,rejection_reason,created_at,updated_at")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as WorkspaceRequest[];
+}
+
+export async function getMyWorkspaceAccessStatus(): Promise<WorkspaceAccessStatus | null> {
+  const { data, error } = await requireClient().rpc("get_my_workspace_access_status");
+  if (error) throw error;
+  const rows = (data ?? []) as WorkspaceAccessStatus[];
+  return rows[0] ?? null;
+}
+
+export async function createWorkspaceRequest(input: {
+  fullName: string; companyName: string; workspaceName: string; phone: string; planId: string; additionalInformation: string;
+}) {
+  const { data, error } = await requireClient().rpc("create_workspace_request", {
+    target_full_name: input.fullName.trim(),
+    target_company_name: input.companyName.trim(),
+    target_workspace_name: input.workspaceName.trim(),
+    target_phone: input.phone.trim(),
+    target_plan_id: input.planId,
+    target_additional_information: input.additionalInformation.trim(),
+  });
+  if (error) throw error;
+  return data as WorkspaceRequest;
+}
+
+export async function resubmitWorkspaceRequest(requestId: string, additionalInformation: string) {
+  const { data, error } = await requireClient().rpc("resubmit_workspace_request", {
+    target_request: requestId,
+    target_additional_information: additionalInformation.trim(),
+  });
+  if (error) throw error;
+  return data as WorkspaceRequest;
+}
+
+export async function getOrganizationSubscription(organizationId: string): Promise<OrganizationSubscription | null> {
+  const { data, error } = await requireClient().from("subscriptions")
+    .select("organization_id,plan_id,status,billing_period,current_period_start,current_period_end,trial_ends_at,has_custom_salesperson_limit,salesperson_limit_override,subscription_plans(id,code,name,description,currency_code,price_monthly,price_quarterly,price_half_yearly,price_yearly,max_users,max_salespeople,max_managers,max_admins,max_leads,trial_days,validity_days,features)")
+    .eq("organization_id", organizationId).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const plan = Array.isArray(data.subscription_plans) ? data.subscription_plans[0] ?? null : data.subscription_plans;
+  return { ...data, subscription_plans: plan as AvailableSubscriptionPlan | null } as OrganizationSubscription;
+}
+
+export async function getOrganizationSalespersonUsage(organizationId: string) {
+  const [members, subscription] = await Promise.all([
+    requireClient().from("organization_members").select("user_id", { count: "exact", head: true })
+      .eq("organization_id", organizationId).eq("role", "agent").eq("is_active", true),
+    getOrganizationSubscription(organizationId),
+  ]);
+  if (members.error) throw members.error;
+  return { activeSalespeople: members.count ?? 0, subscription };
+}
+
+export async function listOrganizationChangeRequests(organizationId: string): Promise<OrganizationChangeRequest[]> {
+  const { data, error } = await requireClient().from("subscription_change_requests")
+    .select("id,organization_id,request_type,target_plan_id,requested_salespeople,message,requester_followup,status,admin_message,created_at")
+    .eq("organization_id", organizationId).order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as OrganizationChangeRequest[];
+}
+
+export async function requestSubscriptionChange(input: {
+  type: "plan_upgrade" | "additional_salespeople"; planId?: string; salespersonLimit?: number; message: string;
+}) {
+  const { data, error } = await requireClient().rpc("request_subscription_change", {
+    target_request_type: input.type,
+    target_plan: input.planId ?? null,
+    target_salespeople: input.salespersonLimit ?? null,
+    request_message: input.message.trim(),
+  });
+  if (error) throw error;
+  return data as OrganizationChangeRequest;
+}
+
+export async function resubmitSubscriptionChangeRequest(requestId: string, message: string) {
+  const { data, error } = await requireClient().rpc("resubmit_subscription_change_request", {
+    target_request: requestId, requester_message: message.trim(),
+  });
+  if (error) throw error;
+  return data as OrganizationChangeRequest;
 }
 
 export async function listOrganizationMembers(organizationId: string): Promise<OrganizationMember[]> {
