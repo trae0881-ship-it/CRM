@@ -33,9 +33,11 @@ This runbook is for an approved operator. It does not authorize or perform produ
 
 DNS caches can persist after a change. Do not declare rollback complete until public resolvers and real client flows use the expected destination.
 
-## Database recovery and migration 026
+## Database recovery and migrations 026–027
 
 - Migration 026 has not been applied by this audit. It adds domain registry/audit tables, functions, grants and outbox triggers.
+- Migration 027 has not been applied by this audit. It adds the server-only contact enquiry table and MySQL outbox trigger; MySQL migration 002 creates its JSON mirror table. If a staged rollout must be stopped, preserve submitted enquiry records and use a reviewed forward correction or approved restore rather than dropping the table.
+- Public contact records contain personal information. Before any restore or retention cleanup, confirm the applicable retention policy and consider the independent Supabase backup and MySQL replica state.
 - If an approved staging application fails, stop further changes, preserve logs and migration evidence, restore the disposable staging snapshot or use a reviewed corrective migration.
 - Production migrations should not be reversed with ad hoc `DROP` statements. A forward fix is preferred; database restore requires explicit owner approval, known recovery point, data-loss assessment and verification.
 - Do not remove domain audit history or MySQL outbox events as a cleanup shortcut.

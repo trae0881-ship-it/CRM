@@ -9,7 +9,7 @@ import { safeErrorCode } from "../sync/outbox.mjs";
 const GLOBAL_SCOPE = "00000000-0000-0000-0000-000000000000";
 const GLOBAL_ENTITIES = new Set([
   "profiles", "meta_forms", "webhook_events", "subscription_plans",
-  "payment_gateway_configs", "payment_webhook_deliveries", "pipeline_stages",
+  "payment_gateway_configs", "payment_webhook_deliveries", "pipeline_stages", "contact_submissions",
 ]);
 const COMPOSITE_ORDER = {
   organization_members: ["organization_id", "user_id"],

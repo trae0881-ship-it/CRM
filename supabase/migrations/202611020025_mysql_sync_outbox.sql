@@ -141,7 +141,7 @@ declare
     'automation_executions','automation_tasks','customers','customer_merge_reviews','customer_notes',
     'campaign_costs','target_history','commission_rules','commission_ledger','support_tickets','import_jobs',
     'google_sheet_integrations','google_sheet_source_rows','google_sheet_sync_runs','organization_settings',
-    'subscription_history'
+    'subscription_history','contact_submissions'
   ];
 begin
   foreach table_name in array source_tables loop

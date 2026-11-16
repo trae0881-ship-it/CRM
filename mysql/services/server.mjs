@@ -7,12 +7,14 @@ import { checkMySqlConnection, closeMySqlPool } from "../config/mysql.mjs";
 import { getSupabaseAdmin, verifyPlatformSuperAdmin } from "../config/supabase.mjs";
 import { countSynchronizedByOrganization, countSynchronizedRecords, getMySqlSyncSummary } from "../repositories/records.mjs";
 import { normalizeHostname, verifyDomainRecords } from "./domain-verification.mjs";
+import { createRateLimiter, publicPricingPlan, validateContactPayload } from "./public-website.mjs";
 import { reconcileOrganization } from "../sync/reconcile.mjs";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const domainProviders = new Set(["hostinger", "vercel", "railway", "other"]);
 const redirectModes = new Set(["none", "www_to_root", "root_to_www"]);
 const applicationRouteRegistryUrl = new URL("../../shared/application-routes.json", import.meta.url);
+const allowContactSubmission = createRateLimiter();
 
 const json = (response, status, body, origin) => {
   const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
@@ -348,6 +350,65 @@ export function createDatabaseServer() {
     if (url.pathname === "/seo/sitemap.xml" || url.pathname === "/seo/robots.txt") {
       try { return await seoResponse(response, request, url, corsOrigin); }
       catch { return json(response, 503, { error: "SEO output is temporarily unavailable" }, corsOrigin); }
+    }
+    if (url.pathname === "/public/plans" && request.method === "GET") {
+      try {
+        const { data, error } = await getSupabaseAdmin().from("subscription_plans")
+          .select("code,name,price_monthly,max_users,max_leads,features")
+          .eq("is_active", true)
+          .order("price_monthly", { ascending: true });
+        if (error) throw error;
+        return json(response, 200, { plans: (data ?? []).map(publicPricingPlan) }, corsOrigin);
+      } catch (error) {
+        return json(response, 503, { error: "Configured plan information is temporarily unavailable.", errorCode: safeCode(error) }, corsOrigin);
+      }
+    }
+    if (url.pathname === "/public/contact" && request.method === "POST") {
+      try {
+        const body = await readJson(request);
+        const { value, error: validationError } = validateContactPayload(body);
+        if (validationError) return json(response, 400, { error: validationError }, corsOrigin);
+        const admin = getSupabaseAdmin();
+        const { data: prior, error: priorError } = await admin.from("contact_submissions")
+          .select("created_at").eq("idempotency_key", value.idempotencyKey).maybeSingle();
+        if (priorError) throw priorError;
+        if (prior?.created_at) {
+          return json(response, 200, { accepted: true, createdAt: prior.created_at, whatsappNotification: "not_configured" }, corsOrigin);
+        }
+        if (!allowContactSubmission(value.email)) return json(response, 429, { error: "Too many enquiries from this email. Please try again later." }, corsOrigin);
+        const recentSince = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const { count, error: rateError } = await admin.from("contact_submissions")
+          .select("id", { count: "exact", head: true })
+          .eq("email", value.email)
+          .gte("created_at", recentSince);
+        if (rateError) throw rateError;
+        if ((count ?? 0) >= 3) return json(response, 429, { error: "An enquiry from this email was recently received. Please wait before submitting again." }, corsOrigin);
+        const { data, error } = await admin.from("contact_submissions").upsert({
+          full_name: value.fullName,
+          mobile: value.mobile,
+          email: value.email,
+          company: value.company,
+          subject: value.subject,
+          message: value.message,
+          idempotency_key: value.idempotencyKey,
+        }, { onConflict: "idempotency_key", ignoreDuplicates: true }).select("created_at").maybeSingle();
+        if (error) throw error;
+        let createdAt = data?.created_at;
+        if (!createdAt) {
+          const { data: existing, error: lookupError } = await admin.from("contact_submissions")
+            .select("created_at").eq("idempotency_key", value.idempotencyKey).maybeSingle();
+          if (lookupError) throw lookupError;
+          createdAt = existing?.created_at;
+        }
+        if (!createdAt) throw new Error("contact_submission_not_confirmed");
+        return json(response, 201, { accepted: true, createdAt, whatsappNotification: "not_configured" }, corsOrigin);
+      } catch (error) {
+        const status = error?.message === "invalid_json" || error?.message === "request_too_large" ? 400 : 503;
+        return json(response, status, {
+          error: status === 400 ? "Invalid enquiry form data." : "Your enquiry could not be saved right now. Please try WhatsApp or submit again later.",
+          errorCode: safeCode(error),
+        }, corsOrigin);
+      }
     }
     if (url.pathname === "/domains" || url.pathname.startsWith("/domains/")) return handleDomainRequest(request, response, url, corsOrigin);
     if (request.method === "GET" && url.pathname === "/health/live") return json(response, 200, { status: "ok" }, corsOrigin);

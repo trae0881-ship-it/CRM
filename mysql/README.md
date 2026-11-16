@@ -9,7 +9,7 @@ The replica uses one isolated `crm_mirror_<supabase_table>` table per supported 
 - Node.js 20.6 or newer (the commands use Node's `--env-file`).
 - A MySQL 8-compatible server/database on a private network route from the worker/API.
 - A least-privilege runtime account and a separate schema-migration account.
-- A Supabase project whose migration 025 has been reviewed and applied to **staging**.
+- A Supabase project whose migration 025 has been reviewed and applied to **staging**; public contact submissions additionally require reviewed migration 027.
 - Server-side `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and MySQL settings in a protected `.env` for local work, or the hosting secret manager in a deployed environment.
 
 Find the MySQL host, port, database name, user and TLS CA in the database provider's service/connection settings. Have the database owner create the database and application users. Never commit the password or copy it to `VITE_` variables.
@@ -53,11 +53,11 @@ npm run mysql:migrate
 npm run mysql:test
 ```
 
-The migration command requires explicit migration credentials. The real integration test runs only if `MYSQL_TEST_DATABASE` exactly equals `MYSQL_DATABASE` and the test account can connect. Point it only at a disposable test database; it inserts random UUID records and removes only those exact rows.
+The migration command requires explicit migration credentials. Migration `002_contact_submissions` is additive and creates the mirror table for website enquiries on existing replicas. The real integration test runs only if `MYSQL_TEST_DATABASE` exactly equals `MYSQL_DATABASE` and the test account can connect. Point it only at a disposable test database; it inserts random UUID records and removes only those exact rows.
 
 ## Prepare Supabase staging
 
-Review the additive [migration 025](../supabase/migrations/202611020025_mysql_sync_outbox.sql) against the full target project's migration history. It installs row triggers and service-role-only RPCs on the supported business tables. The event is inserted in the same PostgreSQL transaction as the source change. Applying the migration is a separate, explicitly approved database operation; the repository setup does not apply it automatically.
+Review the additive [migration 025](../supabase/migrations/202611020025_mysql_sync_outbox.sql) against the full target project's migration history. It installs row triggers and service-role-only RPCs on the supported business tables. The event is inserted in the same PostgreSQL transaction as the source change. Migration 027 adds contact submissions to that outbox after the table is created. Applying any migration is a separate, explicitly approved database operation; repository setup does not apply them automatically.
 
 Do not run the worker until the exact staging Supabase project is confirmed and the migration is applied. Production migration requires a separate explicit approval and backup/recovery review.
 

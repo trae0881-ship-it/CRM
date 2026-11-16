@@ -22,6 +22,8 @@ Each approved Supabase source table maps to a dedicated MySQL `crm_mirror_<table
 
 The global `platform_domains` registry and `platform_domain_audit` records are also mirrored by migration 026 and the existing transactional outbox. DNS challenges are public verification strings, not credentials; Auth settings, provider tokens, and DNS provider credentials are not stored. Domain administration and verification remain service-managed and Super Admin-authorized.
 
+Website enquiries are stored in the RLS-protected Supabase `contact_submissions` table by the server API, with `new` status, timestamps and an idempotency key. Migration 027 adds an outbox trigger; MySQL schema migration `002_contact_submissions` adds its corresponding JSON mirror for existing installations. Backfill processes enquiries as a global entity and reconciliation checks that global table. Contact details are personal data and require an operator-defined retention/handling process. The public website has no direct table access and no WhatsApp Business API notification is configured.
+
 This design mirrors business records but is **not** a typed relational replacement for Supabase. Source foreign-key fields are preserved in JSON, but MySQL does not enforce PostgreSQL foreign-key constraints or independently reproduce every source type/check/index. Consumers requiring relational MySQL queries must use the source database or obtain a reviewed versioned projection/schema migration before release. A JSON mirror must not be described as a relationally equivalent schema.
 
 ## Outbox and consistency

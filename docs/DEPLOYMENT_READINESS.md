@@ -22,8 +22,9 @@ Hostinger is the least-change frontend choice because `public/.htaccess` supplie
 |---|---|
 | Install, lint, test, build | Local checks pass; live DB tests skipped. |
 | Frontend environment | Missing in current runtime; configure per deployment target. |
-| Supabase schema | 26 ordered SQL migration files exist; remote migration history is unknown. |
+| Supabase schema | 27 ordered SQL migration files exist; remote migration history is unknown. |
 | Migration 026 | Reviewed in source; not applied. |
+| Migration 027 / MySQL migration 002 | Added for server-only public enquiries and their replica; not applied. |
 | MySQL | Driver and services exist; credentials/host absent and live test skipped. |
 | API/worker | Source and npm scripts exist; no persistent service deployed. |
 | Supabase Auth URLs | Must be configured manually per environment. |
@@ -57,6 +58,15 @@ npm run preview -- --host 127.0.0.1
 9. Run live MySQL and Supabase tests only against disposable staging accounts/databases.
 10. Configure root sitemap publication and verify that the application origin serves valid XML and robots policy.
 11. Record results in the production checklist. Production is a separate approval/deploy step.
+
+### Public contact and pricing
+
+- Set `VITE_DATABASE_API_URL` to the deployed server API origin in the frontend build environment. Set `DATABASE_API_ALLOWED_ORIGIN` to the exact staging website origin, or activate the domain through the verified-domain configuration before relying on domain-based API CORS.
+- Configure server-only `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` for the persistent API. The browser never receives a service-role key.
+- After checking migration history, apply migration 027 in staging only. It adds `contact_submissions` with server-only RLS access and an outbox trigger; it depends on migration 025.
+- Run `npm run mysql:migrate` with the approved MySQL migration account so existing installations receive version `002_contact_submissions`; deploy the updated API and sync worker.
+- Pricing is read from active `subscription_plans` records. The schema contains no currency field; the public page explicitly asks the visitor to confirm currency and commercial terms. The contact page's WhatsApp link is user-initiated. No WhatsApp Business API notification credentials or automatic notification service are configured.
+- The API applies idempotency, field validation, honeypot rejection and per-email rate limits. Contact data is personal information mirrored into the configured MySQL replica; establish retention and handling procedures before production launch.
 
 ### Publish static sitemap and robots files
 

@@ -33,7 +33,8 @@ test("missing Supabase settings fail closed without printing values or showing d
   assert.match(supabaseClient, /Missing required frontend settings:/);
   assert.match(supabaseClient, /VITE_SUPABASE_URL/);
   assert.match(supabaseClient, /VITE_SUPABASE_ANON_KEY/);
-  assert.match(app, /if \(supabaseConfigError\)/);
+  assert.match(app, /if \(supabaseConfigError && !publicMarketingPaths\.has/);
+  assert.match(app, /publicMarketingPaths = new Set/);
   assert.match(app, /No demo records are shown/);
 });
 

@@ -35,6 +35,8 @@ import { canAccessDocumentation, getDocumentationCenter, getDocumentationRedirec
 import { DatabaseMonitoringView } from "./components/DatabaseMonitoringView";
 import { applyRouteMetadata, getAppUrl, redirectToCanonicalDomain } from "./lib/appUrls";
 import { DomainLinksView, DomainManagementView } from "./components/DomainManagementView";
+import { PublicPage as MarketingPublicPage } from "./components/PublicPages";
+import { PublicLoading } from "./components/PublicLoading";
 
 type View = "Overview" | "Leads" | "Campaigns" | "Follow-ups" | "Calling" | "Teams" | "Reports" | "Integrations" | "Company" | "Site Visits" | "Bookings" | "Notifications" | "Statuses" | "Platform" | "Payment Gateway" | "Growth Tools" | "License Register" | "Database Monitoring" | "Automation" | "Sales Pipeline" | "Customer 360";
 type Status = "New" | "Contacted" | "Qualified" | "Follow-up" | "Won";
@@ -61,6 +63,7 @@ const navItems: { label: View; icon: typeof LayoutDashboard }[] = [
 
 const domainAdminPaths = new Set(["/saas/admin/domains", "/saas/admin/domains/links"]);
 const isDomainAdminPath = (path: string) => domainAdminPaths.has(path);
+const publicMarketingPaths = new Set(["/", "/features", "/pricing", "/about", "/contact", "/integrations", "/faq", "/privacy", "/terms", "/cookies"]);
 
 function App() {
   const [session, setSession] = useState<Session | null | undefined>(isSupabaseConfigured ? undefined : null);
@@ -320,19 +323,19 @@ function App() {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [sidebarOpen]);
 
-  if (supabaseConfigError) return <section className="auth-page"><div className="modal auth-card"><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">APPLICATION CONFIGURATION</p><h1>Workspace unavailable</h1><p className="muted" role="alert">{supabaseConfigError}</p><p className="muted">Configure the frontend settings in the deployment environment, then reload this page. No demo records are shown.</p></div></section>;
+  if (supabaseConfigError && !publicMarketingPaths.has(window.location.pathname)) return <section className="auth-page"><div className="modal auth-card"><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">APPLICATION CONFIGURATION</p><h1>Workspace unavailable</h1><p className="muted" role="alert">{supabaseConfigError}</p><p className="muted">Configure the frontend settings in the deployment environment, then reload this page. No demo records are shown.</p></div></section>;
   if (window.location.pathname === "/reset-password") return <PublicLayout><ResetPasswordScreen /></PublicLayout>;
-  if (isSupabaseConfigured && session === undefined) return <div className="public-loading"><div className="muted">Loading secure workspace...</div></div>;
+  if (isSupabaseConfigured && session === undefined) return <PublicLoading message="Loading secure workspace" />;
   const documentationCenter = getDocumentationCenter(window.location.pathname);
   if (documentationCenter) {
     if (!session || !membershipLoaded || !membership || !canAccessDocumentation(window.location.pathname, membership)) {
-      return <div className="public-loading"><div className="muted">Verifying documentation access...</div></div>;
+      return <PublicLoading message="Verifying documentation access" />;
     }
     return <DocumentationCenter centerId={documentationCenter} membership={membership} />;
   }
   if (isDomainAdminPath(window.location.pathname)) {
     if (!session || !membershipLoaded || !membership || membership.role !== "super_admin" || !membership.is_active) {
-      return <div className="public-loading"><div className="muted">Verifying platform administrator access...</div></div>;
+      return <PublicLoading message="Verifying platform administrator access" />;
     }
     return window.location.pathname === "/saas/admin/domains/links"
       ? <DomainLinksView />
@@ -429,17 +432,7 @@ function PublicPage({ path }: { path: string }) {
   }
   if (path === "/signup") return <SignupScreen />;
   if (path === "/reset-password") return <ResetPasswordScreen />;
-  const pages: Record<string, { eyebrow: string; title: string; description: string }> = {
-    "/features": { eyebrow: "PRODUCT", title: "Everything your team needs to close with confidence.", description: "Capture leads, organize follow-ups, and keep every sales conversation moving in one focused workspace." },
-    "/pricing": { eyebrow: "PRICING", title: "Plans that grow with your sales team.", description: "Start with the essentials and add advanced workflows when your organization is ready." },
-    "/about": { eyebrow: "ABOUT ADOMETA", title: "A calmer way to run a modern sales operation.", description: "Adometa brings your people, pipeline, and customer context together without unnecessary complexity." },
-    "/contact": { eyebrow: "CONTACT", title: "Let’s make your sales workflow clearer.", description: "Tell us what your team is building. Contact details will be configured here when your public business information is ready." },
-    "/privacy": { eyebrow: "LEGAL", title: "Privacy Policy", description: "Privacy policy content will be published here before production launch." },
-    "/terms": { eyebrow: "LEGAL", title: "Terms and Conditions", description: "Terms and conditions content will be published here before production launch." },
-    "/cookies": { eyebrow: "LEGAL", title: "Cookie Policy", description: "Cookie policy content will be published here before production launch." },
-  };
-  const page = pages[path] || { eyebrow: "SALES WORKSPACE", title: "Turn every lead into a better next step.", description: "Adometa CRM helps growing teams capture demand, collaborate clearly, and build a more predictable sales process." };
-  return <section className="public-hero"><div className="public-hero-copy"><p className="eyebrow">{page.eyebrow}</p><h1>{page.title}</h1><p>{page.description}</p><div className="public-hero-actions"><a className="button primary" href="/signup">Start free</a><a className="button secondary" href="/features">Explore features</a></div></div><div className="public-hero-card"><div className="public-preview-top"><span className="brand-mark">A</span><strong>adometa</strong><span className="preview-dot" /></div><div className="preview-line wide" /><div className="preview-line" /><div className="preview-stats"><span /><span /><span /></div><div className="preview-table"><i /><i /><i /><i /></div></div></section>;
+  return <MarketingPublicPage path={path} />;
 }
 
 function SuperAdminLoginScreen() {

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-16 — Public website and enquiry flow
+
+- Replaced the shared generic marketing hero with dedicated home, features, pricing, about, integrations, FAQ, contact and product/legal information pages; updated navigation, footer, route registry, public SEO metadata and sitemap inputs.
+- Added server-side active-plan retrieval and a public contact API backed by Supabase. Contact records have server-only RLS access, validated fields, timestamps, `new` status, idempotency, honeypot and rate-limit checks; the outbox includes these records for MySQL replication and backfill.
+- Added MySQL mirror migration 002 for existing installations; Supabase migration 027 remains unapplied. Contact submissions are included in global backfill and reconciliation. No production settings or databases were changed.
+- Added mobile-responsive public-page styling and a lavender/white skeleton used only while loading. Repository inspection found no public website image assets or `<img>` references to repair.
+- Added prefilled visitor-initiated WhatsApp links for contact and plan enquiries. WhatsApp Business API delivery is not configured; no automatic notification is claimed.
+- Public marketing pages now work even when Supabase frontend credentials are missing; authentication/private routes still fail closed.
+- Verification: `npm run lint` and `npm run build` passed; `npm test` passed 94/96 tests with two live database tests skipped. Browser checks covered all ten public routes and no horizontal overflow at five viewport widths; contact submission persistence and live plan retrieval remain unverified without staging configuration.
+
 ## 2026-11-14 — MySQL replica implementation
 
 - Added a server-side `mysql2` connection pool, versioned MySQL mirror schema, transactional Supabase outbox migration, persistent worker, retry/replay operations, backfill, reconciliation, and Super Admin monitoring API/view.

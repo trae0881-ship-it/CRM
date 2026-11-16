@@ -92,8 +92,13 @@ const publicPageMetadata: Record<string, { title: string; description: string }>
   "/": { title: "Adometa CRM | Organized sales growth", description: "Capture leads, organize follow-ups, and keep every sales conversation moving in one focused workspace." },
   "/features": { title: "Features | Adometa CRM", description: "Explore Adometa CRM tools for lead management, follow-ups, teams, and sales operations." },
   "/pricing": { title: "Pricing | Adometa CRM", description: "Review Adometa CRM plans for growing sales teams." },
+  "/integrations": { title: "Integrations | Adometa CRM", description: "Review current Adometa CRM integration capabilities and setup requirements." },
+  "/faq": { title: "FAQ | Adometa CRM", description: "Answers about Adometa CRM features, integrations, access and plan details." },
   "/about": { title: "About Adometa CRM", description: "Learn about Adometa's focused sales workspace for growing teams." },
   "/contact": { title: "Contact | Adometa CRM", description: "Contact Adometa about your sales workflow." },
+  "/privacy": { title: "Privacy Information | Adometa CRM", description: "Review product-level privacy information and deployment details that require operator confirmation." },
+  "/terms": { title: "Terms Information | Adometa CRM", description: "Review Adometa product scope and commercial terms that require legal approval." },
+  "/cookies": { title: "Cookie and Storage Information | Adometa CRM", description: "Learn about essential authentication storage and browser data used by Adometa CRM." },
 };
 
 function setMeta(selector: string, value: string) {
@@ -107,9 +112,18 @@ export async function applyRouteMetadata(path: string, isAuthenticated: boolean)
   const isPublicIndexable = Boolean(metadata && route?.indexable && !isAuthenticated);
   const robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
   if (robots) robots.content = isPublicIndexable ? "index,follow" : "noindex,nofollow";
+  if (metadata) {
+    document.title = metadata.title;
+    setMeta('meta[name="description"]', metadata.description);
+    setMeta('meta[property="og:title"]', metadata.title);
+    setMeta('meta[property="og:description"]', metadata.description);
+    setMeta('meta[name="twitter:title"]', metadata.title);
+    setMeta('meta[name="twitter:description"]', metadata.description);
+  }
   if (!isPublicIndexable) {
     document.querySelector('link[rel="canonical"]')?.remove();
     document.getElementById("adometa-structured-data")?.remove();
+    setMeta('meta[property="og:url"]', "");
     return;
   }
   const canonical = await getAppUrl(path);
@@ -120,13 +134,7 @@ export async function applyRouteMetadata(path: string, isAuthenticated: boolean)
     document.head.append(canonicalLink);
   }
   canonicalLink.href = canonical;
-  document.title = metadata.title;
-  setMeta('meta[name="description"]', metadata.description);
-  setMeta('meta[property="og:title"]', metadata.title);
-  setMeta('meta[property="og:description"]', metadata.description);
   setMeta('meta[property="og:url"]', canonical);
-  setMeta('meta[name="twitter:title"]', metadata.title);
-  setMeta('meta[name="twitter:description"]', metadata.description);
   const prior = document.getElementById("adometa-structured-data");
   prior?.remove();
   const structuredData = document.createElement("script");

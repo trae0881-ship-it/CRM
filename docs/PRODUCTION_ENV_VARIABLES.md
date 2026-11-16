@@ -8,7 +8,7 @@ Keep frontend build-time variables distinct from backend secrets. Do not commit 
 |---|---|---|
 | `VITE_SUPABASE_URL` | Yes | Supabase project URL. |
 | `VITE_SUPABASE_ANON_KEY` | Yes | Publishable/anon key only; RLS still required. |
-| `VITE_DATABASE_API_URL` | Required for Super Admin domain/database monitoring | Public HTTPS API origin; not a credential. |
+| `VITE_DATABASE_API_URL` | Required for Super Admin monitoring, public pricing and contact submission | Public HTTPS API origin; not a credential. |
 
 Set these in local `.env` or the frontend provider's build settings. Never put `SUPABASE_SERVICE_ROLE_KEY`, MySQL, OAuth, payment or webhook secrets into a `VITE_` variable. The current `.env` file is empty; do not copy production keys into this audit workspace.
 
@@ -26,9 +26,11 @@ Configure as server-side secrets/environment:
 | `MYSQL_MIGRATION_USER`, `MYSQL_MIGRATION_PASSWORD` | Separate schema migration user; do not use as runtime credentials. |
 | `MYSQL_SYNC_BATCH_SIZE`, `MYSQL_SYNC_POLL_MS`, `MYSQL_SYNC_WORKER_ID` | Worker tuning/identity. |
 | `DATABASE_API_PORT` or host `PORT` | API listener port. |
-| `DATABASE_API_ALLOWED_ORIGIN` | Exact deployed frontend origin, including scheme, with no trailing slash/path. |
+| `DATABASE_API_ALLOWED_ORIGIN` | Exact deployed frontend origin, including scheme, with no trailing slash/path; configure for staging/local, or use a backend-verified active custom domain. |
 
 The API requires server Supabase configuration even if MySQL monitoring is not yet possible. Worker/migration commands require actual DB credentials. Configure these independently for staging and production.
+
+The public contact endpoint uses only the existing API and Supabase server credentials; there are no WhatsApp Business API environment variables because no automatic WhatsApp notification provider is configured. The contact database table is server-only. Configure retention and privacy-request handling before production.
 
 ## Edge Function integrations (only when approved and enabled)
 

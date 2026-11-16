@@ -17,6 +17,8 @@ export function Header({ onLogin }: HeaderProps) {
     ["Home", "/"],
     ["Features", "/features"],
     ["Pricing", "/pricing"],
+    ["Integrations", "/integrations"],
+    ["FAQ", "/faq"],
     ["About Us", "/about"],
     ["Contact Us", "/contact"],
   ];

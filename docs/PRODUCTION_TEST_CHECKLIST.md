@@ -14,7 +14,13 @@ Complete this checklist in staging before production approval. Record evidence, 
 
 ## Supabase, Auth and tenant isolation
 
-- [ ] Verify Supabase project identity and migration history against 001–026; apply only approved staging migrations.
+- [ ] Verify Supabase project identity and migration history against 001–027; apply only approved staging migrations.
+- [ ] In staging, submit a contact enquiry twice with the same idempotency key; verify one `new` Supabase record and one MySQL mirror row are created.
+- [ ] Verify the contact record and message are inaccessible to `anon`/`authenticated` database roles and that only the server API can access them.
+- [ ] Verify malformed form input, honeypot input, repeat submissions and rate limits fail explicitly; no WhatsApp API notification is reported as sent.
+- [ ] Check that each displayed active price/limit matches configured plan records and that the currency disclaimer is visible.
+- [ ] Test contact and plan WhatsApp links on mobile and desktop; verify the correct number, selected plan/price, and visitor review before sending.
+- [ ] Confirm legal pages still identify themselves as draft/product information requiring operator and legal review.
 - [ ] Run Supabase Auth sign-up/confirmation, sign-in, password recovery, invitation and logout.
 - [ ] Test expired/revoked session behavior and protected route denial.
 - [ ] Test a two-organization matrix: salesperson, manager, organization admin, company owner, auditor and Super Admin.

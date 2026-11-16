@@ -33,6 +33,7 @@ test("replication allowlist uses canonical keys and strips credentials recursive
   assert.ok(ENTITY_TABLES.includes("organization_members"));
   assert.ok(ENTITY_TABLES.includes("pipeline_stages"));
   assert.ok(ENTITY_TABLES.includes("payment_transactions"));
+  assert.ok(ENTITY_TABLES.includes("contact_submissions"));
   assert.ok(EXCLUDED_TABLES.includes("meta_integration_secrets"));
   assert.ok(EXCLUDED_TABLES.includes("google_oauth_states"));
   assert.equal(sourceRecordKey("leads", { id: "lead-uuid" }), "lead-uuid");
@@ -54,6 +55,14 @@ test("MySQL schema creates an isolated, idempotent snapshot table for each appro
   assert.match(migration, /mysql_sync_progress/);
 });
 
+test("existing MySQL installations receive a versioned contact mirror table migration", async () => {
+  const sql = await readFile(new URL("../migrations/002_contact_submissions.mjs", import.meta.url), "utf8");
+  const runner = await readFile(new URL("../scripts/migrate.mjs", import.meta.url), "utf8");
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS crm_mirror_contact_submissions/);
+  assert.match(sql, /payload JSON NOT NULL/);
+  assert.match(runner, /002_contact_submissions/);
+});
+
 test("Supabase outbox grants only service role and supports replay with ordered idempotent events", async () => {
   const sql = await readFile(new URL("../../supabase/migrations/202611020025_mysql_sync_outbox.sql", import.meta.url), "utf8");
   assert.match(sql, /after insert or update or delete/);
@@ -70,16 +79,30 @@ test("Supabase outbox grants only service role and supports replay with ordered 
   assert.match(sql, /next_attempt_at = case[\s\S]*attempt_count >= 12[\s\S]*power\(2, least\(attempt_count, 11\)\)/);
 });
 
+test("public contact migration keeps submissions server-only and adds MySQL outbox synchronization", async () => {
+  const sql = await readFile(new URL("../../supabase/migrations/202611020027_public_contact_submissions.sql", import.meta.url), "utf8");
+  assert.match(sql, /create table if not exists public\.contact_submissions/);
+  assert.match(sql, /status text not null default 'new'/);
+  assert.match(sql, /idempotency_key uuid not null unique/);
+  assert.match(sql, /revoke all on public\.contact_submissions from public, anon, authenticated/);
+  assert.match(sql, /grant all on public\.contact_submissions to service_role/);
+  assert.match(sql, /after insert or update or delete on public\.contact_submissions/);
+  assert.match(sql, /updated_at timestamptz not null default now\(\)/);
+});
+
 test("backfill resumes in ordered pages and reconciliation reports without mutating data", async () => {
   const backfill = await readFile(new URL("../scripts/backfill.mjs", import.meta.url), "utf8");
   const reconcile = await readFile(new URL("../sync/reconcile.mjs", import.meta.url), "utf8");
 
   assert.match(backfill, /\.range\(offset, offset \+ 249\)/);
+  assert.match(backfill, /"contact_submissions"/);
   assert.match(backfill, /readBackfillProgress/);
   assert.match(backfill, /saveBackfillProgress/);
   assert.match(backfill, /withTransaction/);
   assert.match(reconcile, /missing \+= 1/);
   assert.match(reconcile, /mismatched \+= 1/);
+  assert.match(reconcile, /contact_submissions/);
+  assert.match(reconcile, /includeGlobalContacts/);
   assert.match(reconcile, /status = "mismatch"/);
   assert.doesNotMatch(reconcile, /\b(?:INSERT|UPDATE|DELETE)\s+INTO\b/i);
 });

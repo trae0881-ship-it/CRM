@@ -1,6 +1,6 @@
 # Adometa CRM — Final Build Audit
 
-**Audit date:** 2026-11-14  
+**Audit date:** 2026-11-16  
 **Scope:** Repository implementation, migrations, frontend/backend wiring, configuration and local verification. This is not a production penetration test or a live database certification.
 
 ## Executive result
@@ -42,11 +42,12 @@ The frontend compiles and the local test suite passes, but the application is **
 - Dependency installation: `npm install` completed; npm reported 95 packages audited and zero vulnerabilities.
 - Lint/type check: `npm run lint` passed (`tsc -b --pretty false`).
 - Build: `npm run build` passed; generated `dist/domain-guides/`.
-- Tests: `npm test` passed 85 tests (87 total); 2 live MySQL/Supabase tests skipped due missing disposable staging credentials.
+- Tests: `npm test` passed 94 tests (96 total); 2 live MySQL/Supabase tests skipped due missing disposable staging credentials.
 - Added regression coverage for lead search escaping, Meta token URL handling, domain route gating, DNS hostname validation, migration 026 guardrails, and guide links.
 - Added an end-to-end local test that mocks the SEO API responses and verifies validated sitemap and robots files are written to the static build output; no live API or domain was tested.
 - Fixed lead-search PostgREST filter escaping, moved the Meta Graph access token into the Authorization header, and corrected the anonymous-session metadata effect so public canonical metadata is applied after Supabase resolves a signed-out session.
 - Added `npm run seo:publish` for an explicit, validating static-host sitemap/robots publication step after the API has an active canonical domain.
+- The latest website task adds a staged-only public enquiry flow, server-served active plan details, contact submissions mirrored through the outbox, manual WhatsApp fallback links and public feature/about/integration/FAQ/legal content. Migration 027 and MySQL mirror migration 002 are not applied here; live submission and WhatsApp behavior remain unverified.
 - The runtime environment reports no Supabase, MySQL, or domain API configuration values available. The project `.env` file is empty; it was not read for secrets.
 - No production database, DNS provider, OAuth provider, or deployed origin was accessed.
 
