@@ -75,6 +75,22 @@ export function normalizeHostname(input) {
   return hostname;
 }
 
+async function resolveExpectedTargetAddresses(targets) {
+  const addresses = [];
+  for (const target of targets) {
+    if (isIP(target)) {
+      addresses.push(target);
+      continue;
+    }
+    const hostname = normalizeHostname(target);
+    const resolved = await Promise.allSettled([resolve4(hostname), resolve6(hostname)]);
+    for (const result of resolved) {
+      if (result.status === "fulfilled") addresses.push(...result.value);
+    }
+  }
+  return [...new Set(addresses)];
+}
+
 function httpsHead(hostname, address) {
   return new Promise((resolve) => {
     const family = isIP(address);
@@ -101,7 +117,7 @@ function httpsHead(hostname, address) {
   });
 }
 
-export async function verifyDomainRecords(hostname, challenge) {
+export async function verifyDomainRecords(hostname, challenge, expectedTargets = []) {
   const [ipv4, ipv6, txt] = await Promise.allSettled([
     resolve4(hostname),
     resolve6(hostname),
@@ -114,6 +130,9 @@ export async function verifyDomainRecords(hostname, challenge) {
   if (!addresses.length) {
     return { dnsVerified: false, httpsVerified: false, verificationFailed: false, errorCode: "dns_records_not_found", responseStatus: null };
   }
+  if (addresses.length > 16) {
+    return { dnsVerified: false, httpsVerified: false, verificationFailed: true, errorCode: "too_many_dns_addresses", responseStatus: null };
+  }
   if (addresses.some((address) => !isPublicIp(address))) {
     return { dnsVerified: false, httpsVerified: false, verificationFailed: true, errorCode: "dns_target_not_public", responseStatus: null };
   }
@@ -121,12 +140,22 @@ export async function verifyDomainRecords(hostname, challenge) {
   if (!txtValues.includes(challenge)) {
     return { dnsVerified: false, httpsVerified: false, verificationFailed: false, errorCode: "dns_challenge_not_found", responseStatus: null };
   }
+  if (!expectedTargets.length) {
+    return { dnsVerified: true, httpsVerified: false, verificationFailed: false, errorCode: "expected_target_not_configured", responseStatus: null };
+  }
+  let expectedAddresses;
+  try { expectedAddresses = await resolveExpectedTargetAddresses(expectedTargets); }
+  catch { return { dnsVerified: true, httpsVerified: false, verificationFailed: false, errorCode: "expected_target_resolution_failed", responseStatus: null }; }
+  if (!expectedAddresses.length) {
+    return { dnsVerified: true, httpsVerified: false, verificationFailed: false, errorCode: "expected_target_resolution_failed", responseStatus: null };
+  }
+  if (addresses.some((address) => !expectedAddresses.includes(address))) {
+    return { dnsVerified: true, httpsVerified: false, verificationFailed: true, errorCode: "dns_target_mismatch", responseStatus: null };
+  }
 
-  const checks = [];
-  for (const address of addresses) {
-    const check = await httpsHead(hostname, address);
-    checks.push(check);
-    if (check.verified) return { dnsVerified: true, httpsVerified: true, verificationFailed: false, errorCode: null, responseStatus: check.statusCode };
+  const checks = await Promise.all(addresses.map((address) => httpsHead(hostname, address)));
+  if (checks.every(({ verified }) => verified)) {
+    return { dnsVerified: true, httpsVerified: true, verificationFailed: false, errorCode: null, responseStatus: checks[0]?.statusCode ?? null };
   }
   const certificateFailure = checks.some(({ errorCode }) => /CERT|TLS|ALTNAME/i.test(errorCode ?? ""));
   return {

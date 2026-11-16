@@ -9,10 +9,17 @@ export type PlatformDomain = {
   hostname: string;
   provider: "hostinger" | "vercel" | "railway" | "other";
   isPrimary: boolean;
-  status: "pending_dns" | "dns_verified" | "ssl_pending" | "active" | "verification_failed";
+  status: "pending_dns" | "dns_verified" | "ssl_pending" | "active" | "verification_failed" | "suspended";
+  displayStatus: "pending_dns" | "dns_verified" | "ssl_pending" | "active" | "verification_failed" | "suspended" | "assignment_pending";
   dnsStatus: "pending" | "verified" | "failed";
   sslStatus: "pending" | "verified" | "failed";
   dnsChallenge: string;
+  organizationId: string | null;
+  requestedOrganizationId: string | null;
+  domainType: "custom_domain" | "subdomain";
+  description: string;
+  isSuspended: boolean;
+  suspendedAt: string | null;
   redirectHttps: boolean;
   redirectMode: "none" | "www_to_root" | "root_to_www";
   lastVerificationAt: string | null;
@@ -21,6 +28,8 @@ export type PlatformDomain = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type DomainWorkspace = { id: string; name: string; workspace_name: string | null };
 
 export type DomainAuditEvent = {
   id: string;
@@ -54,7 +63,7 @@ async function request<T>(path: string, method = "GET", body?: unknown): Promise
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     cache: "no-store",
   });
-  const result = await response.json().catch(() => null) as { error?: string; domain?: PlatformDomain; domains?: PlatformDomain[]; events?: DomainAuditEvent[]; checks?: { dns: boolean; https: boolean; httpStatus: number | null } } | null;
+  const result = await response.json().catch(() => null) as { error?: string; domain?: PlatformDomain; domains?: PlatformDomain[]; workspaces?: DomainWorkspace[]; events?: DomainAuditEvent[]; checks?: { dns: boolean; https: boolean; httpStatus: number | null } } | null;
   if (!response.ok) throw new Error(result?.error || "The domain operation could not be completed.");
   return result as T;
 }
@@ -67,8 +76,18 @@ export async function listDomainAudit() {
   return (await request<{ events: DomainAuditEvent[] }>("/domains/audit")).events;
 }
 
-export async function addPlatformDomain(hostname: string, provider: PlatformDomain["provider"]) {
-  return (await request<{ domain: PlatformDomain }>("/domains", "POST", { hostname, provider })).domain;
+export async function listDomainWorkspaces() {
+  return (await request<{ workspaces: DomainWorkspace[] }>("/domains/workspaces")).workspaces;
+}
+
+export async function addPlatformDomain(input: {
+  hostname: string;
+  provider: PlatformDomain["provider"];
+  domainType: PlatformDomain["domainType"];
+  description: string;
+  organizationId: string | null;
+}) {
+  return (await request<{ domain: PlatformDomain }>("/domains", "POST", input)).domain;
 }
 
 export async function updatePlatformDomain(id: string, patch: { hostname?: string; provider?: PlatformDomain["provider"] }) {
@@ -77,6 +96,18 @@ export async function updatePlatformDomain(id: string, patch: { hostname?: strin
 
 export async function verifyPlatformDomain(id: string) {
   return request<{ domain: PlatformDomain; checks: { dns: boolean; https: boolean; httpStatus: number | null } }>(`/domains/${id}/verify`, "POST", {});
+}
+
+export async function assignPlatformDomain(id: string, organizationId: string | null) {
+  return (await request<{ domain: PlatformDomain }>(`/domains/${id}/assignment`, "PATCH", { organizationId })).domain;
+}
+
+export async function suspendPlatformDomain(id: string) {
+  return (await request<{ domain: PlatformDomain }>(`/domains/${id}/suspend`, "POST", {})).domain;
+}
+
+export async function reactivatePlatformDomain(id: string) {
+  return request<{ domain: PlatformDomain; checks?: { dns: boolean; https: boolean; httpStatus: number | null } }>(`/domains/${id}/reactivate`, "POST", {});
 }
 
 export async function setPrimaryPlatformDomain(id: string, redirectHttps: boolean, redirectMode: PlatformDomain["redirectMode"]) {

@@ -28,6 +28,37 @@ test("domain admin pages are rendered only for active Super Admin memberships", 
   const api = await read("mysql/services/server.mjs");
   assert.match(api, /verifyPlatformSuperAdmin\(token\)/);
   assert.match(api, /const access = await platformActor\(request\)/);
+  assert.match(app, /Domains \/ Custom Domains/);
+  const view = await read("src/components/DomainManagementView.tsx");
+  assert.match(view, /Add Domain/);
+  assert.match(view, /Copy Host/);
+  assert.match(view, /Copy TXT Value/);
+  assert.match(view, /Verify Domain/);
+  assert.match(view, /Pending domains/);
+  assert.match(view, /Verified domains/);
+  assert.match(view, /Suspend Domain/);
+});
+
+test("workspace domains require verified status, approved assignment, and fresh checks to reactivate", async () => {
+  const migration = await read("supabase/migrations/20261116162000_platform_workspace_domains.sql");
+  const server = await read("mysql/services/server.mjs");
+  const urls = await read("src/lib/appUrls.ts");
+  assert.match(migration, /organization_id uuid references public\.organizations\(id\)/);
+  assert.match(migration, /verification_status <> 'active'[\s\S]*dns_status <> 'verified'[\s\S]*ssl_status <> 'verified'/);
+  assert.match(migration, /workspace\.approval_status = 'approved'/);
+  assert.match(migration, /is_suspended/);
+  assert.match(server, /canVerifyDomain\(access\.actor\.userId, id\)/);
+  assert.match(server, /verifyDomainRecords\(current\.hostname, current\.dns_challenge, expectedDomainTargets\(\)\)/);
+  assert.match(server, /PLATFORM_DOMAIN_EXPECTED_TARGETS/);
+  assert.match(server, /allowedAuthRedirectHost\(workspaceHostname\)/);
+  const inviteFunction = await read("supabase/functions/invite-member/index.ts");
+  assert.match(inviteFunction, /SUPABASE_AUTH_ALLOWED_REDIRECT_HOSTS/);
+  assert.match(inviteFunction, /allowedRedirectHosts\.includes\(workspaceHostname\.toLowerCase\(\)\)/);
+  const verifier = await read("mysql/services/domain-verification.mjs");
+  assert.match(verifier, /expected_target_not_configured/);
+  assert.match(verifier, /dns_target_mismatch/);
+  assert.match(urls, /organizationHostnames\[organizationId\]/);
+  assert.match(urls, /Object\.values\(config\.organizationHostnames\)\.includes/);
 });
 
 test("link registry only includes public indexable routes in the generated sitemap", async () => {

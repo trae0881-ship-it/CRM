@@ -71,8 +71,14 @@ Deno.serve(async (request) => {
   const { data: domainConfig, error: domainConfigError } = await admin.rpc("get_public_platform_domain_config");
   if (domainConfigError) {
     console.warn("Canonical invitation redirect unavailable; using the Supabase Site URL.");
-  } else if (typeof domainConfig?.canonicalHostname === "string" && domainConfig.canonicalHostname) {
-    inviteOptions.redirectTo = `https://${domainConfig.canonicalHostname}/`;
+  } else {
+    const workspaceHostname = domainConfig?.organizationHostnames?.[body.organizationId];
+    const allowedRedirectHosts = (Deno.env.get("SUPABASE_AUTH_ALLOWED_REDIRECT_HOSTS") ?? "")
+      .split(",").map((host) => host.trim().toLowerCase()).filter(Boolean);
+    const hostname = typeof workspaceHostname === "string" && allowedRedirectHosts.includes(workspaceHostname.toLowerCase())
+      ? workspaceHostname
+      : domainConfig?.canonicalHostname;
+    if (typeof hostname === "string" && hostname) inviteOptions.redirectTo = `https://${hostname}/`;
   }
   const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, inviteOptions);
   if (inviteError || !invited.user) return json({ error: inviteError?.message || "Invitation failed" }, 400);

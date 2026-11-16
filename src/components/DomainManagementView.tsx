@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
-import { ArrowDownToLine, ArrowUpRight, Check, Copy, ExternalLink, Globe2, RefreshCw, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowDownToLine, ArrowUpRight, Check, Copy, ExternalLink, Globe2, Plus, RefreshCw, ShieldAlert, ShieldCheck, Trash2, X } from "lucide-react";
 import { resetPublicDomainConfigCache } from "../lib/appUrls";
 import "./domain-management.css";
 import {
-  addPlatformDomain, checkLink, downloadSeoAsset, getLinkInventory, listDomainAudit, listPlatformDomains, removePlatformDomain,
-  setPrimaryPlatformDomain, updatePlatformDomain, updatePlatformRedirects, verifyPlatformDomain,
+  addPlatformDomain, assignPlatformDomain, checkLink, downloadSeoAsset, getLinkInventory, listDomainAudit, listDomainWorkspaces, listPlatformDomains, reactivatePlatformDomain, removePlatformDomain,
+  setPrimaryPlatformDomain, suspendPlatformDomain, updatePlatformDomain, updatePlatformRedirects, verifyPlatformDomain,
 } from "../services/domains";
-import type { DomainAuditEvent, PlatformDomain } from "../services/domains";
+import type { DomainAuditEvent, DomainWorkspace, PlatformDomain } from "../services/domains";
 
 type Props = { onOpenLinks: () => void };
 type Provider = PlatformDomain["provider"];
@@ -18,12 +18,14 @@ const providerLabels: Record<Provider, string> = {
   other: "Other hosting provider",
 };
 
-const statusLabels: Record<PlatformDomain["status"], string> = {
+const statusLabels: Record<PlatformDomain["displayStatus"], string> = {
   pending_dns: "Pending DNS",
   dns_verified: "DNS Verified",
   ssl_pending: "SSL Pending",
-  active: "Active",
+  active: "Verified / Active",
   verification_failed: "Verification Failed",
+  suspended: "Suspended",
+  assignment_pending: "Workspace Assignment Pending",
 };
 
 function messageFrom(error: unknown) {
@@ -45,26 +47,33 @@ function downloadText(name: string, value: string, contentType: string) {
 
 export function DomainManagementView({ onOpenLinks }: Props) {
   const [domains, setDomains] = useState<PlatformDomain[]>([]);
+  const [workspaces, setWorkspaces] = useState<DomainWorkspace[]>([]);
   const [events, setEvents] = useState<DomainAuditEvent[]>([]);
-  const [hostname, setHostname] = useState("");
-  const [provider, setProvider] = useState<Provider>("other");
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ hostname: "", provider: "other" as Provider, domainType: "custom_domain" as PlatformDomain["domainType"], description: "", organizationId: "" });
   const [busy, setBusy] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "verified">("all");
+  const [page, setPage] = useState(0);
+  const [detailsId, setDetailsId] = useState("");
   const [editingId, setEditingId] = useState("");
   const [editingHostname, setEditingHostname] = useState("");
   const [editingProvider, setEditingProvider] = useState<Provider>("other");
   const [redirectHttps, setRedirectHttps] = useState(true);
   const [redirectMode, setRedirectMode] = useState<PlatformDomain["redirectMode"]>("none");
+  const pageSize = 10;
 
   const load = async () => {
     setLoading(true);
     setError("");
     try {
-      const [currentDomains, audit] = await Promise.all([listPlatformDomains(), listDomainAudit()]);
+      const [currentDomains, audit, currentWorkspaces] = await Promise.all([listPlatformDomains(), listDomainAudit(), listDomainWorkspaces()]);
       setDomains(currentDomains);
       setEvents(audit);
+      setWorkspaces(currentWorkspaces);
       const primary = currentDomains.find((domain) => domain.isPrimary);
       if (primary) {
         setRedirectHttps(primary.redirectHttps);
@@ -88,7 +97,9 @@ export function DomainManagementView({ onOpenLinks }: Props) {
       resetPublicDomainConfigCache();
       await load();
     } catch (actionError) {
-      setError(messageFrom(actionError));
+      const message = messageFrom(actionError);
+      await load();
+      setError(message);
     } finally {
       setBusy("");
     }
@@ -97,9 +108,15 @@ export function DomainManagementView({ onOpenLinks }: Props) {
   const submitDomain = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     await run("add", async () => {
-      const created = await addPlatformDomain(hostname, provider);
-      setHostname("");
-      setNotice(`Added ${created.hostname}. Copy its TXT challenge below, then add the A/CNAME values from your hosting provider.`);
+      const created = await addPlatformDomain({
+        ...form,
+        organizationId: form.organizationId || null,
+      });
+      setForm({ hostname: "", provider: "other", domainType: "custom_domain", description: "", organizationId: "" });
+      setShowAdd(false);
+      setNotice(form.organizationId
+        ? `Added ${created.hostname}. Workspace assignment becomes effective only after DNS ownership and HTTPS checks pass.`
+        : `Added ${created.hostname}. Add its TXT record, then verify DNS ownership and HTTPS.`);
     });
   };
 
@@ -123,21 +140,34 @@ export function DomainManagementView({ onOpenLinks }: Props) {
     await run(`verify:${domain.id}`, async () => {
       const result = await verifyPlatformDomain(domain.id);
       setNotice(result.checks.dns && result.checks.https
-        ? `${domain.hostname}: DNS ownership and HTTPS certificate verified (HTTP ${result.checks.httpStatus ?? "response"}).`
-        : `${domain.hostname}: verification is not complete. Review the current DNS/SSL status and safe error code.`);
+        ? `${domain.hostname}: DNS ownership and HTTPS certificate verified.`
+        : result.checks.dns
+          ? `${domain.hostname}: DNS ownership verified; HTTPS is pending. The domain is not active.`
+          : `${domain.hostname}: DNS ownership is not verified. The domain is not active.`);
     });
   };
 
-  const primary = domains.find((domain) => domain.isPrimary);
+  const primary = domains.find((domain) => domain.isPrimary && !domain.isSuspended);
+  const filteredDomains = useMemo(() => domains.filter((domain) => {
+    const workspaceName = workspaces.find((workspace) => workspace.id === domain.organizationId)?.name ?? "";
+    const text = `${domain.hostname} ${domain.description} ${domain.provider} ${workspaceName}`.toLowerCase();
+    const verified = domain.displayStatus === "active" && !domain.isSuspended;
+    return text.includes(search.toLowerCase())
+      && (statusFilter === "all" || (statusFilter === "verified" ? verified : !verified));
+  }), [domains, search, statusFilter, workspaces]);
+  const shownDomains = filteredDomains.slice(page * pageSize, (page + 1) * pageSize);
+  const verifiedCount = domains.filter((domain) => domain.displayStatus === "active" && !domain.isSuspended).length;
+  const pendingCount = domains.length - verifiedCount;
 
   return <main className="domain-admin-page">
     <header className="domain-page-header">
       <div>
         <p className="eyebrow">SAAS PLATFORM</p>
-        <h1>Custom domains</h1>
-        <p>Connect hostnames, verify real DNS ownership and TLS, then select the canonical application domain.</p>
+        <h1>Domains / Custom Domains</h1>
+        <p>Register hostnames, verify DNS ownership and HTTPS, then optionally assign verified domains to approved workspaces.</p>
       </div>
       <div className="domain-header-actions">
+        <button className="button primary" onClick={() => setShowAdd(true)}><Plus size={16} /> Add Domain</button>
         <button className="button secondary" onClick={onOpenLinks}><Globe2 size={16} /> Link inventory</button>
         <button className="button secondary" onClick={() => void load()} disabled={loading}><RefreshCw size={15} /> Refresh</button>
       </div>
@@ -159,20 +189,6 @@ export function DomainManagementView({ onOpenLinks }: Props) {
       </span>
     </section>
 
-    <section className="card domain-add-card">
-      <div className="card-header">
-        <div><h2>Add a domain</h2><p>Add the root hostname and the www hostname as separate records if both should work.</p></div>
-      </div>
-      <form className="domain-add-form" onSubmit={(event) => void submitDomain(event)}>
-        <label>Hostname<input required value={hostname} onChange={(event) => setHostname(event.target.value)} placeholder="www.example.com" autoComplete="url" /></label>
-        <label>Hosting provider<select value={provider} onChange={(event) => setProvider(event.target.value as Provider)}>
-          {Object.entries(providerLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </select></label>
-        <button className="button primary" disabled={busy === "add" || !hostname.trim()}>{busy === "add" ? "Adding..." : "Add domain"}</button>
-      </form>
-      <p className="domain-provider-warning">Adometa generates only the domain-ownership TXT challenge. A, AAAA, CNAME, nameserver, and hosting targets must be copied from the provider’s own domain dashboard; this app does not invent provider values.</p>
-    </section>
-
     {primary && <section className="card domain-redirect-card">
       <div className="card-header"><div><h2>Canonical redirects</h2><p>Application links use the primary hostname. Browser redirects run only on a hostname that has passed DNS and HTTPS checks.</p></div></div>
       <div className="domain-redirect-controls">
@@ -191,42 +207,73 @@ export function DomainManagementView({ onOpenLinks }: Props) {
     </section>}
 
     <section className="card table-card domain-records-card">
-      <div className="card-header"><div><h2>Domain records</h2><p>“Active” is shown only after the backend resolves the public DNS record, matches the TXT challenge, and completes a certificate-validated HTTPS request.</p></div></div>
-      {loading ? <div className="domain-empty">Loading domain records...</div> : domains.length === 0 ? <div className="domain-empty"><Globe2 size={22} /><strong>Not Connected</strong><span>Add a domain to begin. No DNS or SSL status is assumed.</span></div> : <div className="domain-record-list">
-        {domains.map((domain) => {
-          const txtName = `_adometa-verification.${domain.hostname}`;
+      <div className="card-header"><div><h2>Domain registry</h2><p>Only DNS- and HTTPS-verified, non-suspended domains are active. Verification is performed by the server.</p></div></div>
+      <div className="domain-list-toolbar">
+        <input aria-label="Search domains" placeholder="Search hostname, workspace or description" value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} />
+        <select aria-label="Filter domains" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); setPage(0); }}>
+          <option value="all">All domains ({domains.length})</option><option value="pending">Pending domains ({pendingCount})</option><option value="verified">Verified domains ({verifiedCount})</option>
+        </select>
+      </div>
+      {loading ? <div className="domain-empty">Loading domain records...</div> : domains.length === 0 ? <div className="domain-empty"><Globe2 size={22} /><strong>No domains yet</strong><span>Use Add Domain to start the DNS and HTTPS verification workflow.</span></div> : shownDomains.length === 0 ? <div className="domain-empty">No domains match the current search or filter.</div> : <div className="domain-record-list">
+        {shownDomains.map((domain) => {
+          const txtHost = "_adometa-verification";
+          const txtName = `${txtHost}.${domain.hostname}`;
+          const assignedWorkspace = workspaces.find((workspace) => workspace.id === domain.organizationId);
           return <article className="domain-record" key={domain.id}>
             <div className="domain-record-heading">
-              <div><strong>{domain.hostname}</strong><span>{providerLabels[domain.provider]}{domain.isPrimary ? " · Primary" : ""}</span></div>
-              <span className={`domain-status ${domain.status === "active" ? "active" : domain.status === "verification_failed" ? "failed" : "pending"}`}>{statusLabels[domain.status]}</span>
+              <div><strong>{domain.hostname}</strong><span>{domain.domainType === "subdomain" ? "Subdomain" : "Custom domain"} · {providerLabels[domain.provider]}{domain.isPrimary ? " · Platform canonical" : ""}</span></div>
+              <span className={`domain-status ${domain.displayStatus === "active" ? "active" : domain.displayStatus === "verification_failed" || domain.isSuspended ? "failed" : "pending"}`}>{statusLabels[domain.displayStatus]}</span>
             </div>
+            {domain.description && <p className="domain-description">{domain.description}</p>}
+            <div className="domain-assignment-summary"><small>Company / workspace</small><strong>{assignedWorkspace ? `${assignedWorkspace.name}${assignedWorkspace.workspace_name ? ` · ${assignedWorkspace.workspace_name}` : ""}` : domain.requestedOrganizationId ? "Assignment requested; pending verification" : "Not assigned"}</strong></div>
             <div className="domain-check-grid">
-              <span><small>DNS</small><strong>{domain.dnsStatus === "verified" ? "Verified" : domain.dnsStatus === "failed" ? "Failed" : "Pending"}</strong></span>
-              <span><small>HTTPS / SSL</small><strong>{domain.sslStatus === "verified" ? "Verified" : domain.sslStatus === "failed" ? "Failed" : "Pending"}</strong></span>
-              <span><small>Last checked</small><strong>{domain.lastVerificationAt ? new Date(domain.lastVerificationAt).toLocaleString() : "Not checked"}</strong></span>
-              <span><small>Safe error code</small><strong>{domain.lastErrorCode || "—"}</strong></span>
+              <div><small>DNS ownership</small><strong>{domain.dnsStatus === "verified" ? "Verified" : domain.dnsStatus === "failed" ? "Failed" : "Pending"}</strong></div>
+              <div><small>HTTPS certificate</small><strong>{domain.sslStatus === "verified" ? "Valid" : domain.sslStatus === "failed" ? "Failed" : domain.dnsStatus === "verified" ? "HTTPS Pending" : "Pending"}</strong></div>
+              <div><small>Last checked</small><strong>{domain.lastVerificationAt ? new Date(domain.lastVerificationAt).toLocaleString() : "Not checked"}</strong></div>
+              <div><small>Safe error code</small><strong>{domain.lastErrorCode || "—"}</strong></div>
             </div>
-            {!domain.isPrimary && <div className="domain-dns-record">
-              <div><small>Add this TXT record at your DNS provider</small><code>TXT&nbsp; {txtName}&nbsp; {domain.dnsChallenge}</code></div>
-              <button className="button secondary" onClick={() => void copyText(`TXT ${txtName} ${domain.dnsChallenge}`).then(() => setNotice("TXT verification record copied.")).catch(() => setError("Clipboard access was denied; copy the record text manually."))}><Copy size={15} /> Copy DNS record</button>
-            </div>}
-            {domain.isPrimary && <div className="domain-dns-record">
-              <div><small>TXT verification record</small><code>TXT&nbsp; {txtName}&nbsp; {domain.dnsChallenge}</code></div>
-              <button className="button secondary" onClick={() => void copyText(`TXT ${txtName} ${domain.dnsChallenge}`).then(() => setNotice("TXT verification record copied.")).catch(() => setError("Clipboard access was denied; copy the record text manually."))}><Copy size={15} /> Copy DNS record</button>
-            </div>}
+            <div className="domain-dns-record">
+              <div className="domain-dns-values"><span>Type <code>TXT</code></span><span>Host <code>{txtHost}</code></span><span>Value <code>{domain.dnsChallenge}</code></span><small>Fully qualified record name: {txtName}</small></div>
+              <div className="domain-header-actions">
+                <button className="button secondary" onClick={() => void copyText(txtHost).then(() => setNotice("TXT host copied.")).catch(() => setError("Clipboard access was denied; copy the host manually."))}><Copy size={15} /> Copy Host</button>
+                <button className="button secondary" onClick={() => void copyText(domain.dnsChallenge).then(() => setNotice("TXT value copied.")).catch(() => setError("Clipboard access was denied; copy the value manually."))}><Copy size={15} /> Copy TXT Value</button>
+              </div>
+            </div>
             <div className="domain-record-actions">
-              <button className="button primary" disabled={Boolean(busy)} onClick={() => void verify(domain)}>{busy === `verify:${domain.id}` ? "Checking DNS and HTTPS..." : "Verify DNS and SSL"}</button>
-              {!domain.isPrimary && domain.status === "active" && <button className="button secondary" disabled={Boolean(busy)} onClick={() => void run(`primary:${domain.id}`, async () => {
+              <button className="button primary" disabled={Boolean(busy) || domain.isSuspended} onClick={() => void verify(domain)}>{busy === `verify:${domain.id}` ? "Checking DNS and HTTPS..." : "Verify Domain"}</button>
+              {!domain.organizationId && !domain.isSuspended && !domain.isPrimary && domain.displayStatus === "active" && <button className="button secondary" disabled={Boolean(busy)} onClick={() => void run(`primary:${domain.id}`, async () => {
                 await setPrimaryPlatformDomain(domain.id, redirectHttps, redirectMode);
                 setNotice(`${domain.hostname} is now the primary canonical domain.`);
-              })}>Set primary</button>}
-              <button className="text-button" onClick={() => startEdit(domain)}>Edit</button>
+              })}>Set platform canonical</button>}
+              <button className="text-button" onClick={() => setDetailsId(detailsId === domain.id ? "" : domain.id)}>{detailsId === domain.id ? "Hide details" : "View details / Edit assignment"}</button>
+              <button className="text-button" onClick={() => startEdit(domain)}>Edit domain</button>
+              {!domain.isSuspended
+                ? <button className="text-button danger-text" disabled={Boolean(busy)} onClick={() => {
+                    if (window.confirm(`Suspend ${domain.hostname}? It will no longer be eligible for canonical or workspace links.`)) {
+                      void run(`suspend:${domain.id}`, async () => { await suspendPlatformDomain(domain.id); setNotice(`${domain.hostname} suspended.`); });
+                    }
+                  }}>Suspend Domain</button>
+                : <button className="text-button" disabled={Boolean(busy)} onClick={() => void run(`reactivate:${domain.id}`, async () => {
+                    const result = await reactivatePlatformDomain(domain.id);
+                    setNotice(result.checks?.dns && result.checks.https ? `${domain.hostname} revalidated and reactivated.` : `${domain.hostname} remains suspended.`);
+                  })}>Reactivate</button>}
               <button className="text-button danger-text" disabled={Boolean(busy)} onClick={() => {
-                if (window.confirm(`Remove ${domain.hostname}? This clears its primary status if selected.`)) {
+                if (window.confirm(`Remove ${domain.hostname}? Assigned and platform-canonical domains must first be unassigned.`)) {
                   void run(`delete:${domain.id}`, async () => { await removePlatformDomain(domain.id); setNotice("Domain removed. Hosting DNS records are not changed."); });
                 }
               }}><Trash2 size={15} /> Remove</button>
             </div>
+            {detailsId === domain.id && domain.status === "active" && !domain.isSuspended && <div className="domain-assignment-controls">
+              <label>Assign to approved company / workspace<select value={domain.organizationId || ""} onChange={async (event) => {
+                const organizationId = event.target.value || null;
+                await run(`assign:${domain.id}`, async () => {
+                  await assignPlatformDomain(domain.id, organizationId);
+                  setNotice(organizationId ? "Verified domain assigned to the selected workspace." : "Workspace assignment removed.");
+                });
+              }} disabled={Boolean(busy)}>
+                <option value="">Not assigned</option>{workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name}{workspace.workspace_name ? ` · ${workspace.workspace_name}` : ""}</option>)}
+              </select></label>
+            </div>}
             {editingId === domain.id && <form className="domain-edit-form" onSubmit={(event) => { event.preventDefault(); void saveEdit(domain.id); }}>
               <label>Hostname<input required value={editingHostname} onChange={(event) => setEditingHostname(event.target.value)} /></label>
               <label>Hosting provider<select value={editingProvider} onChange={(event) => setEditingProvider(event.target.value as Provider)}>
@@ -238,6 +285,7 @@ export function DomainManagementView({ onOpenLinks }: Props) {
           </article>;
         })}
       </div>}
+      {!loading && filteredDomains.length > pageSize && <div className="table-pagination"><span>{page * pageSize + 1}-{Math.min((page + 1) * pageSize, filteredDomains.length)} of {filteredDomains.length} domains</span><div><button className="button secondary" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>Previous</button><button className="button secondary" disabled={(page + 1) * pageSize >= filteredDomains.length} onClick={() => setPage((value) => value + 1)}>Next</button></div></div>}
     </section>
 
     <section className="domain-instruction-grid">
@@ -249,6 +297,23 @@ export function DomainManagementView({ onOpenLinks }: Props) {
       <div className="card-header"><div><h2>Domain change history</h2><p>Actor IDs, operation, hostname, and safe change metadata are stored in Supabase.</p></div></div>
       {events.length ? <div className="table-scroll"><table><thead><tr><th>TIME</th><th>HOSTNAME</th><th>ACTION</th><th>ACTOR</th><th>DETAIL</th></tr></thead><tbody>{events.map((event) => <tr key={event.id}><td>{new Date(event.created_at).toLocaleString()}</td><td>{event.hostname}</td><td>{event.action}</td><td>{event.actor_user_id}</td><td>{JSON.stringify(event.changes)}</td></tr>)}</tbody></table></div> : <p className="muted">No domain changes are recorded.</p>}
     </section>
+    {showAdd && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowAdd(false)}>
+      <form className="modal domain-add-modal" role="dialog" aria-modal="true" aria-labelledby="add-domain-title" onSubmit={(event) => void submitDomain(event)}>
+        <div className="modal-head"><div><p className="eyebrow">CUSTOM DOMAIN</p><h2 id="add-domain-title">Add Domain</h2></div><button type="button" className="icon-button" aria-label="Close dialog" onClick={() => setShowAdd(false)}><X size={18} /></button></div>
+        <label>Domain name<input required value={form.hostname} onChange={(event) => setForm({ ...form, hostname: event.target.value })} placeholder="crm.example.com" autoComplete="off" /></label>
+        <div className="contact-field-grid">
+          <label>Domain type<select value={form.domainType} onChange={(event) => setForm({ ...form, domainType: event.target.value as PlatformDomain["domainType"] })}><option value="custom_domain">Custom Domain</option><option value="subdomain">Subdomain</option></select></label>
+          <label>Hosting provider<select value={form.provider} onChange={(event) => setForm({ ...form, provider: event.target.value as Provider })}>{Object.entries(providerLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        </div>
+        <label>Assign company / workspace (optional)<select value={form.organizationId} onChange={(event) => setForm({ ...form, organizationId: event.target.value })}>
+          <option value="">Choose after verification</option>{workspaces.map((workspace) => <option value={workspace.id} key={workspace.id}>{workspace.name}{workspace.workspace_name ? ` · ${workspace.workspace_name}` : ""}</option>)}
+        </select></label>
+        <p className="muted">If selected, assignment is requested now but becomes effective only after DNS ownership and HTTPS verification both pass.</p>
+        <label>Description (optional)<textarea maxLength={500} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+        <p className="domain-provider-warning">The domain remains pending and inactive until server-side TXT, expected public DNS destination and HTTPS/TLS checks pass. Configure PLATFORM_DOMAIN_EXPECTED_TARGETS from the hosting provider; Adometa does not invent A/CNAME targets.</p>
+        <div className="modal-actions"><button type="button" className="button secondary" onClick={() => setShowAdd(false)}>Cancel</button><button className="button primary" disabled={busy === "add" || !form.hostname.trim()}><Plus size={16} />{busy === "add" ? "Adding..." : "Add Domain"}</button></div>
+      </form>
+    </div>}
   </main>;
 }
 

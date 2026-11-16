@@ -16,7 +16,7 @@ Find the MySQL host, port, database name, user and TLS CA in the database provid
 
 Required runtime settings: `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_SSL`, `MYSQL_CONNECTION_LIMIT`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
 
-The migration command additionally requires `MYSQL_MIGRATION_USER` and `MYSQL_MIGRATION_PASSWORD`. Optional tuning/settings are `MYSQL_CONNECT_TIMEOUT_MS`, `MYSQL_SSL_CA`, `MYSQL_SSL_REJECT_UNAUTHORIZED`, `MYSQL_SYNC_BATCH_SIZE`, `MYSQL_SYNC_POLL_MS`, `MYSQL_SYNC_WORKER_ID`, `DATABASE_API_PORT`, and `DATABASE_API_ALLOWED_ORIGIN`. The frontend monitoring page uses the public service URL `VITE_DATABASE_API_URL`; it is not a credential.
+The migration command additionally requires `MYSQL_MIGRATION_USER` and `MYSQL_MIGRATION_PASSWORD`. Optional tuning/settings are `MYSQL_CONNECT_TIMEOUT_MS`, `MYSQL_SSL_CA`, `MYSQL_SSL_REJECT_UNAUTHORIZED`, `MYSQL_SYNC_BATCH_SIZE`, `MYSQL_SYNC_POLL_MS`, `MYSQL_SYNC_WORKER_ID`, and `DATABASE_API_PORT`. `DATABASE_API_ALLOWED_ORIGIN` sets the allowed browser origin. Set `PLATFORM_DOMAIN_EXPECTED_TARGETS` to the comma-separated public IPs or hostnames supplied by the approved hosting provider; domain verification remains pending until these actual targets match. The frontend monitoring page uses the public service URL `VITE_DATABASE_API_URL`; it is not a credential.
 
 ## Create database and restricted users
 

@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase";
-import { getAppUrl } from "../lib/appUrls";
+import { getAuthRedirectUrl } from "../lib/appUrls";
 
 export type UserProfile = { full_name: string; avatar_url: string | null };
 
@@ -23,7 +23,7 @@ export async function signUp(email: string, password: string, fullName: string, 
     email: email.trim().toLowerCase(),
     password,
     options: {
-      emailRedirectTo: await getAppUrl("/workspace/create"),
+      emailRedirectTo: await getAuthRedirectUrl("/workspace/create"),
       data: { full_name: cleanName, phone: cleanPhone },
     },
   });
@@ -76,7 +76,7 @@ export async function updateUserProfile(input: { fullName: string; avatarUrl: st
 
 export async function requestPasswordReset(email: string) {
   const { error } = await requireClient().auth.resetPasswordForEmail(email, {
-    redirectTo: await getAppUrl("/reset-password"),
+    redirectTo: await getAuthRedirectUrl("/reset-password"),
   });
   if (error) throw error;
 }

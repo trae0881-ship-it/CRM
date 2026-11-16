@@ -27,6 +27,10 @@ Configure as server-side secrets/environment:
 | `MYSQL_SYNC_BATCH_SIZE`, `MYSQL_SYNC_POLL_MS`, `MYSQL_SYNC_WORKER_ID` | Worker tuning/identity. |
 | `DATABASE_API_PORT` or host `PORT` | API listener port. |
 | `DATABASE_API_ALLOWED_ORIGIN` | Exact deployed frontend origin, including scheme, with no trailing slash/path; configure for staging/local, or use a backend-verified active custom domain. |
+| `PLATFORM_DOMAIN_EXPECTED_TARGETS` | Comma-separated public IP addresses or hostnames copied from the approved hosting provider. Required before a custom domain can pass destination verification and activate; no default target is assumed. |
+| `SUPABASE_AUTH_ALLOWED_REDIRECT_HOSTS` | Exact custom-domain hostnames already registered in Supabase Auth URL Configuration; invitation emails only target assigned domains on this list. |
+
+Set `VITE_SUPABASE_AUTH_ALLOWED_REDIRECT_HOSTS` to the same verified hostnames for browser signup/password-reset redirects. Do not rely on custom-domain Auth redirects before adding those hosts to Supabase Auth's redirect allowlist.
 
 The API requires server Supabase configuration even if MySQL monitoring is not yet possible. Worker/migration commands require actual DB credentials. Configure these independently for staging and production.
 

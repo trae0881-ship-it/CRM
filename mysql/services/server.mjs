@@ -14,8 +14,11 @@ import { reconcileOrganization } from "../sync/reconcile.mjs";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const domainProviders = new Set(["hostinger", "vercel", "railway", "other"]);
 const redirectModes = new Set(["none", "www_to_root", "root_to_www"]);
+const domainTypes = new Set(["custom_domain", "subdomain"]);
 const applicationRouteRegistryUrl = new URL("../../shared/application-routes.json", import.meta.url);
 const allowContactSubmission = createRateLimiter();
+const allowDomainVerification = createRateLimiter({ limit: 5, windowMs: 15 * 60 * 1000 });
+const allowActorDomainVerification = createRateLimiter({ limit: 30, windowMs: 15 * 60 * 1000 });
 
 const json = (response, status, body, origin) => {
   const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
@@ -58,13 +61,9 @@ async function allowedOrigin(origin, configuredOrigin) {
   try {
     const url = new URL(origin);
     if (url.protocol !== "https:" || url.port) return null;
-    const { data, error } = await getSupabaseAdmin()
-      .from("platform_domains")
-      .select("hostname")
-      .eq("verification_status", "active")
-      .limit(100);
+    const { data, error } = await getSupabaseAdmin().rpc("get_public_platform_domain_config");
     if (error) return null;
-    return data?.some((domain) => domain.hostname === url.hostname) ? origin : null;
+    return data?.activeHostnames?.includes(url.hostname) ? origin : null;
   } catch {
     return null;
   }
@@ -87,13 +86,54 @@ function domainRow(row) {
   const {
     id, hostname, provider, is_primary, verification_status, dns_status, ssl_status, dns_challenge,
     redirect_https, redirect_mode, last_verification_at, verified_at, last_error_code, created_at, updated_at,
+    organization_id, requested_organization_id, domain_type, description, is_suspended, suspended_at,
   } = row;
+  const displayStatus = is_suspended
+    ? "suspended"
+    : requested_organization_id && !organization_id && verification_status === "active"
+      ? "assignment_pending"
+      : verification_status;
   return {
     id, hostname, provider, isPrimary: is_primary, status: verification_status, dnsStatus: dns_status,
     sslStatus: ssl_status, dnsChallenge: dns_challenge, redirectHttps: redirect_https,
     redirectMode: redirect_mode, lastVerificationAt: last_verification_at, verifiedAt: verified_at,
     lastErrorCode: last_error_code, createdAt: created_at, updatedAt: updated_at,
+    organizationId: organization_id, requestedOrganizationId: requested_organization_id,
+    domainType: domain_type, description, isSuspended: is_suspended, suspendedAt: suspended_at,
+    displayStatus,
   };
+}
+
+function platformOwnedHostnames() {
+  return [
+    process.env.APP_PUBLIC_URL,
+    process.env.VITE_APP_URL,
+    process.env.DATABASE_API_ALLOWED_ORIGIN,
+    process.env.SUPABASE_URL,
+  ].flatMap((value) => {
+    if (!value) return [];
+    try { return [new URL(value).hostname.toLowerCase()]; }
+    catch { return []; }
+  });
+}
+
+function isPlatformOwnedHostname(hostname) {
+  return platformOwnedHostnames().some((owned) => hostname === owned || hostname.endsWith(`.${owned}`));
+}
+
+function expectedDomainTargets() {
+  return (process.env.PLATFORM_DOMAIN_EXPECTED_TARGETS ?? "")
+    .split(",").map((target) => target.trim()).filter(Boolean);
+}
+
+function allowedAuthRedirectHost(hostname) {
+  return (process.env.SUPABASE_AUTH_ALLOWED_REDIRECT_HOSTS ?? "")
+    .split(",").map((host) => host.trim().toLowerCase()).filter(Boolean).includes(hostname.toLowerCase());
+}
+
+function canVerifyDomain(actorUserId, domainId) {
+  return allowActorDomainVerification(actorUserId)
+    && allowDomainVerification(`${actorUserId}:${domainId}`);
 }
 
 async function handleDomainRequest(request, response, url, origin) {
@@ -115,21 +155,43 @@ async function handleDomainRequest(request, response, url, origin) {
       if (error) throw error;
       return json(response, 200, { events: data ?? [] }, origin);
     }
+    if (path === "/domains/workspaces" && method === "GET") {
+      const { data, error } = await admin.from("organizations")
+        .select("id,name,workspace_name")
+        .eq("is_active", true).eq("approval_status", "approved")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return json(response, 200, { workspaces: data ?? [] }, origin);
+    }
     if (path === "/domains" && method === "POST") {
       const body = await readJson(request);
       let hostname;
       try { hostname = normalizeHostname(body.hostname); }
       catch { return json(response, 400, { error: "Enter a valid public hostname without a scheme or path." }, origin); }
+      if (isPlatformOwnedHostname(hostname)) return json(response, 409, { error: "This hostname is already owned by an Adometa platform service." }, origin);
       if (!domainProviders.has(body.provider)) return json(response, 400, { error: "Choose a supported hosting provider." }, origin);
-      const { data, error } = await admin.rpc("manage_platform_domain", {
-        action_name: "create", target_domain: null, target_hostname: hostname, target_provider: body.provider,
-        target_challenge: randomBytes(24).toString("hex"), target_redirect_https: null,
-        target_redirect_mode: null, actor_user: access.actor.userId,
+      if (!domainTypes.has(body.domainType)) return json(response, 400, { error: "Choose a valid domain type." }, origin);
+      if (body.description !== undefined && typeof body.description !== "string") {
+        return json(response, 400, { error: "Description must be text." }, origin);
+      }
+      const description = body.description?.trim() ?? "";
+      if (description.length > 500) {
+        return json(response, 400, { error: "Description must be 500 characters or fewer." }, origin);
+      }
+      if (body.organizationId !== null && body.organizationId !== undefined
+        && (typeof body.organizationId !== "string" || !uuidPattern.test(body.organizationId))) {
+        return json(response, 400, { error: "Choose a valid workspace." }, origin);
+      }
+      const { data, error } = await admin.rpc("create_platform_domain", {
+        target_hostname: hostname, target_provider: body.provider,
+        target_challenge: randomBytes(24).toString("hex"), target_domain_type: body.domainType,
+        target_description: description, target_organization: body.organizationId || null,
+        actor_user: access.actor.userId,
       });
       if (error) throw error;
       return json(response, 201, { domain: domainRow(data) }, origin);
     }
-    const route = /^\/domains\/([0-9a-f-]{36})(?:\/(verify|primary))?$/.exec(path);
+    const route = /^\/domains\/([0-9a-f-]{36})(?:\/(verify|primary|assignment|suspend|reactivate))?$/.exec(path);
     if (route) {
       const [, id, action] = route;
       if (!uuidPattern.test(id)) return json(response, 400, { error: "Invalid domain identifier." }, origin);
@@ -139,6 +201,7 @@ async function handleDomainRequest(request, response, url, origin) {
         if (body.hostname !== undefined) {
           try { hostname = normalizeHostname(body.hostname); }
           catch { return json(response, 400, { error: "Enter a valid public hostname without a scheme or path." }, origin); }
+          if (isPlatformOwnedHostname(hostname)) return json(response, 409, { error: "This hostname is already owned by an Adometa platform service." }, origin);
         }
         if (body.provider !== undefined && !domainProviders.has(body.provider)) return json(response, 400, { error: "Choose a supported hosting provider." }, origin);
         const { data, error } = await admin.rpc("manage_platform_domain", {
@@ -150,23 +213,113 @@ async function handleDomainRequest(request, response, url, origin) {
         return json(response, 200, { domain: domainRow(data) }, origin);
       }
       if (action === "verify" && method === "POST") {
+        if (!canVerifyDomain(access.actor.userId, id)) {
+          return json(response, 429, { error: "Verification retry limit reached. Wait 15 minutes before trying again." }, origin);
+        }
         const { data: current, error: readError } = await admin.from("platform_domains")
-          .select("id,hostname,dns_challenge").eq("id", id).maybeSingle();
+          .select("id,hostname,dns_challenge,requested_organization_id,is_suspended").eq("id", id).maybeSingle();
         if (readError) throw readError;
         if (!current) return json(response, 404, { error: "Domain not found." }, origin);
-        const verification = await verifyDomainRecords(current.hostname, current.dns_challenge);
-        const { data, error } = await admin.rpc("record_platform_domain_verification", {
+        const verification = await verifyDomainRecords(current.hostname, current.dns_challenge, expectedDomainTargets());
+        const { data: verifiedDomain, error } = await admin.rpc("record_platform_domain_verification", {
           target_domain: id, dns_verified: verification.dnsVerified, https_verified: verification.httpsVerified,
           verification_failed: verification.verificationFailed, error_code: verification.errorCode,
           response_status: verification.responseStatus, actor_user: access.actor.userId,
         });
         if (error) throw error;
+        let data = verifiedDomain;
+        if (verification.dnsVerified && verification.httpsVerified && current.requested_organization_id && !current.is_suspended) {
+          const { data: assigned, error: assignmentError } = await admin.rpc("manage_platform_domain_workspace", {
+            action_name: "assign", target_domain: id,
+            target_organization: current.requested_organization_id, actor_user: access.actor.userId,
+          });
+          if (assignmentError) {
+            return json(response, 409, {
+              error: "DNS and HTTPS passed, but the requested workspace could not be assigned. Choose an approved active workspace and retry.",
+              errorCode: safeCode(assignmentError),
+              domain: domainRow(verifiedDomain),
+              checks: { dns: true, https: true, httpStatus: verification.responseStatus },
+            }, origin);
+          }
+          data = assigned;
+        }
         return json(response, 200, {
           domain: domainRow(data),
           checks: { dns: verification.dnsVerified, https: verification.httpsVerified, httpStatus: verification.responseStatus },
         }, origin);
       }
+      if (action === "assignment" && method === "PATCH") {
+        const body = await readJson(request);
+        if (body.organizationId !== null && body.organizationId !== undefined
+          && (typeof body.organizationId !== "string" || !uuidPattern.test(body.organizationId))) {
+          return json(response, 400, { error: "Choose a valid workspace." }, origin);
+        }
+        const { data, error } = await admin.rpc("manage_platform_domain_workspace", {
+          action_name: "assign", target_domain: id,
+          target_organization: body.organizationId || null, actor_user: access.actor.userId,
+        });
+        if (error) throw error;
+        return json(response, 200, { domain: domainRow(data) }, origin);
+      }
+      if ((action === "suspend" || action === "reactivate") && method === "POST") {
+        let requestedOrgForReactivation = null;
+        if (action === "reactivate") {
+          if (!canVerifyDomain(access.actor.userId, id)) {
+            return json(response, 429, { error: "Verification retry limit reached. Wait 15 minutes before trying again." }, origin);
+          }
+          const { data: current, error: readError } = await admin.from("platform_domains")
+            .select("id,hostname,dns_challenge,requested_organization_id").eq("id", id).maybeSingle();
+          if (readError) throw readError;
+          if (!current) return json(response, 404, { error: "Domain not found." }, origin);
+          requestedOrgForReactivation = current.requested_organization_id;
+          const verification = await verifyDomainRecords(current.hostname, current.dns_challenge, expectedDomainTargets());
+          const { error: verificationError } = await admin.rpc("record_platform_domain_verification", {
+            target_domain: id, dns_verified: verification.dnsVerified, https_verified: verification.httpsVerified,
+            verification_failed: verification.verificationFailed, error_code: verification.errorCode,
+            response_status: verification.responseStatus, actor_user: access.actor.userId,
+          });
+          if (verificationError) throw verificationError;
+          if (!verification.dnsVerified || !verification.httpsVerified) {
+            const { data: pending, error: pendingError } = await admin.from("platform_domains").select("*").eq("id", id).single();
+            if (pendingError) throw pendingError;
+            return json(response, 409, {
+              error: "Domain revalidation did not pass. It remains suspended.",
+              domain: domainRow(pending),
+              checks: { dns: verification.dnsVerified, https: verification.httpsVerified, httpStatus: verification.responseStatus },
+            }, origin);
+          }
+        }
+        const { data, error } = await admin.rpc("manage_platform_domain_workspace", {
+          action_name: action, target_domain: id, target_organization: null, actor_user: access.actor.userId,
+        });
+        if (error) throw error;
+        let updatedDomain = data;
+        if (action === "reactivate" && requestedOrgForReactivation) {
+          const { data: assigned, error: assignmentError } = await admin.rpc("manage_platform_domain_workspace", {
+            action_name: "assign", target_domain: id,
+            target_organization: requestedOrgForReactivation, actor_user: access.actor.userId,
+          });
+          if (assignmentError) {
+            const { data: current, error: currentError } = await admin.from("platform_domains").select("*").eq("id", id).single();
+            if (currentError) throw currentError;
+            return json(response, 409, {
+              error: "Domain revalidated, but its requested workspace could not be assigned. Select an approved active workspace.",
+              errorCode: safeCode(assignmentError),
+              domain: domainRow(current),
+            }, origin);
+          }
+          updatedDomain = assigned;
+        }
+        return json(response, 200, { domain: domainRow(updatedDomain) }, origin);
+      }
       if (action === "primary" && method === "POST") {
+        const { data: current, error: readError } = await admin.from("platform_domains")
+          .select("id,organization_id,requested_organization_id,is_suspended").eq("id", id).maybeSingle();
+        if (readError) throw readError;
+        if (!current) return json(response, 404, { error: "Domain not found." }, origin);
+        if (current.organization_id || current.requested_organization_id || current.is_suspended) {
+          return json(response, 409, { error: "Only an active, unassigned platform domain can be made canonical." }, origin);
+        }
         const body = await readJson(request);
         const mode = body.redirectMode ?? "none";
         if (!redirectModes.has(mode) || (body.redirectHttps !== undefined && typeof body.redirectHttps !== "boolean")) {
@@ -181,6 +334,13 @@ async function handleDomainRequest(request, response, url, origin) {
         return json(response, 200, { domain: domainRow(data) }, origin);
       }
       if (!action && method === "DELETE") {
+        const { data: current, error: readError } = await admin.from("platform_domains")
+          .select("id,is_primary,organization_id").eq("id", id).maybeSingle();
+        if (readError) throw readError;
+        if (!current) return json(response, 404, { error: "Domain not found." }, origin);
+        if (current.is_primary || current.organization_id) {
+          return json(response, 409, { error: "Remove the canonical or workspace assignment before deleting this domain." }, origin);
+        }
         const { data, error } = await admin.rpc("manage_platform_domain", {
           action_name: "delete", target_domain: id, target_hostname: null, target_provider: null,
           target_challenge: null, target_redirect_https: null, target_redirect_mode: null,
@@ -353,8 +513,12 @@ async function platformUserRequest(request, response, url, origin) {
         const { data: domainConfig, error: domainError } = await admin.rpc("get_public_platform_domain_config");
         if (domainError) {
           console.warn("Canonical invitation redirect unavailable; Supabase Site URL will be used.");
-        } else if (typeof domainConfig?.canonicalHostname === "string" && domainConfig.canonicalHostname) {
-          inviteOptions.redirectTo = `https://${domainConfig.canonicalHostname}/`;
+        } else {
+          const workspaceHostname = domainConfig?.organizationHostnames?.[value.companyId];
+          const hostname = typeof workspaceHostname === "string" && allowedAuthRedirectHost(workspaceHostname)
+            ? workspaceHostname
+            : domainConfig?.canonicalHostname;
+          if (typeof hostname === "string" && hostname) inviteOptions.redirectTo = `https://${hostname}/`;
         }
         ({ data: invitedUser, error: authError } = await admin.auth.admin.inviteUserByEmail(value.email, inviteOptions));
       } else {
