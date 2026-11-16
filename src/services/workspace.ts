@@ -19,9 +19,13 @@ export async function getCurrentMembership(): Promise<Membership | null> {
   const client = requireClient();
   const { data: userData, error: userError } = await client.auth.getUser();
   if (userError) throw userError;
-  const { data, error } = await client.from("organization_members").select("organization_id,user_id,role,is_active").eq("user_id", userData.user.id).eq("is_active", true).maybeSingle();
+  const { data, error } = await client.from("organization_members").select("organization_id,user_id,role,is_active").eq("user_id", userData.user.id).eq("is_active", true);
   if (error) throw error;
-  return data as Membership | null;
+  const memberships = (data ?? []) as Membership[];
+  const platformMembership = memberships.find((membership) => membership.role === "super_admin");
+  if (platformMembership) return platformMembership;
+  if (memberships.length > 1) throw new Error("Multiple active organization memberships were found.");
+  return memberships[0] ?? null;
 }
 
 export async function getOrganizationProfile(organizationId: string): Promise<OrganizationProfile> {
