@@ -118,7 +118,7 @@ export function WorkspaceRequestsView({ plans, onChanged, onNotify }: Props) {
         {shown.map((request) => <tr key={request.id}>
           <td><strong>{request.company_name}</strong><small className="table-secondary">{request.workspace_name}</small></td>
           <td>{request.requester_name || "Name not provided"}<small className="table-secondary">{request.requester_email} · {request.contact_phone}</small></td>
-          <td>{request.plan_name}</td><td>{new Date(request.created_at).toLocaleDateString()}</td><td>{request.status.replaceAll("_", " ")}</td>
+          <td>{request.plan_name}</td><td>{new Date(request.created_at).toLocaleDateString()}</td><td>{request.status.replace(/_/g, " ")}</td>
           <td>{request.status === "pending" || request.status === "information_requested"
             ? <button className="button secondary" onClick={() => openReview(request)}>Review</button>
             : <span>{request.rejection_reason || request.admin_message || "—"}</span>}</td>

@@ -91,7 +91,7 @@ export function CompanySubscriptionPanel({ organizationId, onNotify }: Props) {
     <div className="subscription-summary">
       <div><small>Current plan</small><strong>{plan?.name || "Not assigned"}</strong></div>
       <div><small>Subscription status</small><strong>{subscription?.status || "—"}</strong></div>
-      <div><small>Billing period</small><strong>{subscription?.billing_period?.replaceAll("_", " ") || "—"}</strong></div>
+      <div><small>Billing period</small><strong>{subscription?.billing_period ? subscription.billing_period.replace(/_/g, " ") : "—"}</strong></div>
       <div className="seat-summary"><UsersRound size={18} /><div><small>Salespeople</small><strong>{activeSalespeople} / {effectiveLimit ?? "unlimited"}</strong></div></div>
       <div><small>Period end</small><strong>{subscription?.current_period_end ? new Date(subscription.current_period_end).toLocaleDateString() : "—"}</strong></div>
     </div>
@@ -121,14 +121,14 @@ export function CompanySubscriptionPanel({ organizationId, onNotify }: Props) {
         <button className="button primary" disabled={busy || Boolean(openRequest) || (requestType === "plan_upgrade" && !plans.some((availablePlan) => availablePlan.id !== subscription.plan_id))}>
           {busy ? "Submitting..." : openRequest ? "Request under review" : "Submit request"}
         </button>
-        {openRequest && <p className="muted">One request is already {openRequest.status.replaceAll("_", " ")}. Wait for a response before submitting another.</p>}
+        {openRequest && <p className="muted">One request is already {openRequest.status.replace(/_/g, " ")}. Wait for a response before submitting another.</p>}
       </form>
       <div className="subscription-request-history">
         <h3>Request history</h3>
         {requests.length === 0 ? <p className="muted">No subscription changes requested.</p> : requests.map((request) => (
           <div className="subscription-request-row" key={request.id}>
             <strong>{request.request_type === "plan_upgrade" ? "Plan upgrade" : `Salesperson limit: ${request.requested_salespeople}`}</strong>
-            <span>{request.status.replaceAll("_", " ")}</span>
+            <span>{request.status.replace(/_/g, " ")}</span>
             <time>{new Date(request.created_at).toLocaleDateString()}</time>
             {request.admin_message && <p>{request.admin_message}</p>}
             {request.requester_followup && <p>Your response: {request.requester_followup}</p>}

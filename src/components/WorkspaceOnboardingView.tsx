@@ -162,7 +162,7 @@ export function WorkspaceOnboardingView({ onRefreshMembership, onSignOut, onNoti
           <h2>Request history</h2>
           {requests.slice(1).map((request) => <div className="request-history-row" key={request.id}>
             <span>{request.company_name} · {request.workspace_name}</span>
-            <strong>{request.status.replaceAll("_", " ")}</strong>
+            <strong>{request.status.replace(/_/g, " ")}</strong>
             <time>{new Date(request.created_at).toLocaleDateString()}</time>
           </div>)}
         </div>}

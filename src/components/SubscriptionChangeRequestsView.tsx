@@ -52,7 +52,7 @@ export function SubscriptionChangeRequestsView({ onChanged, onNotify }: Props) {
       await reviewPlatformChangeRequest(selected.id, decision, savedResponse);
       setSelected(null);
       await Promise.all([load(), onChanged()]);
-      onNotify(`Request marked ${decision.replaceAll("_", " ")}. No payment or plan change was assumed.`);
+      onNotify(`Request marked ${decision.replace(/_/g, " ")}. No payment or plan change was assumed.`);
     } catch (error) {
       onNotify(error instanceof Error ? error.message : "Subscription change request could not be updated.");
     } finally { setBusy(false); }
@@ -71,7 +71,7 @@ export function SubscriptionChangeRequestsView({ onChanged, onNotify }: Props) {
         {pageItems.map((request) => <tr key={request.id}>
           <td>{request.organization_name}</td><td>{request.requester_name || request.requester_email}<small className="table-secondary">{request.requester_email}</small></td>
           <td>{request.request_type === "plan_upgrade" ? `Plan upgrade to ${request.target_plan_name || "selected plan"}` : `Salesperson limit: ${request.requested_salespeople}`}</td>
-          <td>{request.status.replaceAll("_", " ")}</td><td>{new Date(request.created_at).toLocaleDateString()}</td>
+          <td>{request.status.replace(/_/g, " ")}</td><td>{new Date(request.created_at).toLocaleDateString()}</td>
           <td>{request.status === "pending" || request.status === "information_requested" ? <button className="button secondary" onClick={() => open(request)}>Respond</button> : request.admin_message || "—"}</td>
         </tr>)}
         {pageItems.length === 0 && <tr><td colSpan={6}>No matching requests.</td></tr>}

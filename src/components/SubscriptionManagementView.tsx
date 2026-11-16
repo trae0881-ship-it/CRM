@@ -151,7 +151,7 @@ export function SubscriptionManagementView({ companies, plans, subscriptions, on
         {companies.map((company) => {
           const subscription = subscriptionByCompany.get(company.id);
           const plan = subscription?.subscription_plans;
-          return <tr key={company.id}><td>{company.name}</td><td>{plan?.name || "Not assigned"}</td><td>{subscription?.status || "Not assigned"}</td><td>{subscription?.billing_period?.replaceAll("_", " ") || "—"}</td><td>{subscription?.current_period_end ? new Date(subscription.current_period_end).toLocaleDateString() : "—"}</td><td><button className="button secondary" disabled={busy || plans.filter((item) => item.is_active).length === 0} onClick={() => openConfigure(company, subscription)}>{subscription ? "Configure" : "Assign plan"}</button></td></tr>;
+          return <tr key={company.id}><td>{company.name}</td><td>{plan?.name || "Not assigned"}</td><td>{subscription?.status || "Not assigned"}</td><td>{subscription?.billing_period ? subscription.billing_period.replace(/_/g, " ") : "—"}</td><td>{subscription?.current_period_end ? new Date(subscription.current_period_end).toLocaleDateString() : "—"}</td><td><button className="button secondary" disabled={busy || plans.filter((item) => item.is_active).length === 0} onClick={() => openConfigure(company, subscription)}>{subscription ? "Configure" : "Assign plan"}</button></td></tr>;
         })}
       </tbody></table></div>
     </section>
