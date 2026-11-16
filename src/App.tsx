@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight, BarChart3, Bell, CalendarDays, Check, ChevronDown, CircleHelp,
   ClipboardList, Clock3, Filter, LayoutDashboard, Menu, MoreHorizontal, Phone,
@@ -8,38 +8,48 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { isSupabaseConfigured, supabase, supabaseConfigError } from "./lib/supabase";
-import { createLead, getLeadByExternalId, listLeadTimeline, listOrganizationSalespeople, listLeads, shareLead, transferLead, updateLeadStatus } from "./services/leads";
+import { createLead, getLeadByExternalId, listLeadTimeline, listOrganizationSalespeople, listLeadsPage, shareLead, transferLead, updateLeadStatus } from "./services/leads";
 import { saveCall, skipLead } from "./services/calling";
 import { personalWhatsAppUrl, recordWhatsAppOpened, renderWhatsAppTemplate } from "./services/whatsapp";
 import { requestPasswordReset, signIn, signOut, signUp, updatePassword } from "./services/auth";
 import type { LeadEvent, LeadRecord, LeadStatus } from "./types/database";
 import type { Session } from "@supabase/supabase-js";
-import { createTeam, getCurrentMembership, getPersonalPerformance, getWorkspaceSummary, inviteMember, listTeams, listUserTeamNames } from "./services/workspace";
-import type { Membership, PersonalPerformance, Team, WorkspaceSummary } from "./services/workspace";
+import { createTeam, getCurrentMembership, getOrganizationProfile, getPersonalPerformance, inviteMember, listTeams, listUserTeamNames } from "./services/workspace";
+import type { Membership, OrganizationProfile, PersonalPerformance, Team, WorkspaceSummary } from "./services/workspace";
 import { DashboardLayout } from "./components/DashboardLayout";
 import { PublicLayout } from "./components/PublicLayout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { PublicRoute } from "./components/PublicRoute";
-import { BookingsView, FollowUpsView, NotificationsView, ReportsView, SiteVisitsView, StatusSettingsView } from "./components/OperationsViews";
-import { PlatformAdminView } from "./components/PlatformAdminView";
-import { PlatformUserManagementView } from "./components/PlatformUserManagementView";
-import { CompanyAdminView } from "./components/CompanyAdminView";
-import { GrowthToolsView, LicenseRegisterView } from "./components/GrowthToolsView";
-import { AutomationView } from "./components/AutomationView";
-import { Customer360View, SalesPipelineView } from "./components/SalesOperationsView";
-import { listNotifications } from "./services/operations";
+const BookingsView = lazy(() => import("./components/OperationsViews").then((module) => ({ default: module.BookingsView })));
+const FollowUpsView = lazy(() => import("./components/OperationsViews").then((module) => ({ default: module.FollowUpsView })));
+const NotificationsView = lazy(() => import("./components/OperationsViews").then((module) => ({ default: module.NotificationsView })));
+const ReportsView = lazy(() => import("./components/OperationsViews").then((module) => ({ default: module.ReportsView })));
+const SiteVisitsView = lazy(() => import("./components/OperationsViews").then((module) => ({ default: module.SiteVisitsView })));
+const StatusSettingsView = lazy(() => import("./components/OperationsViews").then((module) => ({ default: module.StatusSettingsView })));
+const PlatformAdminView = lazy(() => import("./components/PlatformAdminView").then((module) => ({ default: module.PlatformAdminView })));
+const PlatformUserManagementView = lazy(() => import("./components/PlatformUserManagementView").then((module) => ({ default: module.PlatformUserManagementView })));
+const CompanyAdminView = lazy(() => import("./components/CompanyAdminView").then((module) => ({ default: module.CompanyAdminView })));
+const GrowthToolsView = lazy(() => import("./components/GrowthToolsView").then((module) => ({ default: module.GrowthToolsView })));
+const LicenseRegisterView = lazy(() => import("./components/GrowthToolsView").then((module) => ({ default: module.LicenseRegisterView })));
+const AutomationView = lazy(() => import("./components/AutomationView").then((module) => ({ default: module.AutomationView })));
+const Customer360View = lazy(() => import("./components/SalesOperationsView").then((module) => ({ default: module.Customer360View })));
+const SalesPipelineView = lazy(() => import("./components/SalesOperationsView").then((module) => ({ default: module.SalesPipelineView })));
+import { countUnreadNotifications } from "./services/operations";
 import { ProfileMenu } from "./components/ProfileMenu";
 import { OrganizationAdminControls } from "./components/OrganizationAdminControls";
-import { DocumentationCenter } from "./components/DocumentationCenter";
+const DocumentationCenter = lazy(() => import("./components/DocumentationCenter").then((module) => ({ default: module.DocumentationCenter })));
 import { canAccessDocumentation, getDocumentationCenter, getDocumentationRedirectPath } from "./lib/documentationAccess";
-import { DatabaseMonitoringView } from "./components/DatabaseMonitoringView";
+const DatabaseMonitoringView = lazy(() => import("./components/DatabaseMonitoringView").then((module) => ({ default: module.DatabaseMonitoringView })));
 import { applyRouteMetadata, getAppUrl, redirectToCanonicalDomain } from "./lib/appUrls";
-import { DomainLinksView, DomainManagementView } from "./components/DomainManagementView";
-import { PublicPage as MarketingPublicPage } from "./components/PublicPages";
+const DomainLinksView = lazy(() => import("./components/DomainManagementView").then((module) => ({ default: module.DomainLinksView })));
+const DomainManagementView = lazy(() => import("./components/DomainManagementView").then((module) => ({ default: module.DomainManagementView })));
+const MarketingPublicPage = lazy(() => import("./components/PublicPages").then((module) => ({ default: module.PublicPage })));
 import { PublicLoading } from "./components/PublicLoading";
-import { WorkspaceOnboardingView } from "./components/WorkspaceOnboardingView";
+const WorkspaceOnboardingView = lazy(() => import("./components/WorkspaceOnboardingView").then((module) => ({ default: module.WorkspaceOnboardingView })));
 
+const LEAD_PAGE_SIZE = 50;
 type View = "Overview" | "Leads" | "Campaigns" | "Follow-ups" | "Calling" | "Teams" | "Reports" | "Integrations" | "Company" | "Site Visits" | "Bookings" | "Notifications" | "Statuses" | "Platform" | "Users" | "Growth Tools" | "License Register" | "Database Monitoring" | "Automation" | "Sales Pipeline" | "Customer 360";
+const leadLoadingViews = new Set<View>(["Overview", "Leads", "Calling", "Follow-ups", "Site Visits", "Bookings"]);
 type Status = "New" | "Contacted" | "Qualified" | "Follow-up" | "Won";
 type Lead = { id: string; dbId?: string; phone?: string | null; name: string; company: string; source: string; status: Status; score: number; owner: string; date: string; color: string };
 
@@ -72,12 +82,16 @@ function App() {
   const [session, setSession] = useState<Session | null | undefined>(isSupabaseConfigured ? undefined : null);
   const [view, setView] = useState<View>("Overview");
   const [leads, setLeads] = useState<Lead[]>(isSupabaseConfigured ? [] : initialLeads);
+  const [totalLeadCount, setTotalLeadCount] = useState(isSupabaseConfigured ? 0 : initialLeads.length);
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [isLoadingMoreLeads, setIsLoadingMoreLeads] = useState(false);
+  const [isLoadingLeads, setIsLoadingLeads] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLeadForm, setShowLeadForm] = useState(false);
   const [toast, setToast] = useState("");
   const [membership, setMembership] = useState<Membership | null>(null);
-  const [workspaceSummary, setWorkspaceSummary] = useState<WorkspaceSummary | null>(null);
+  const [organizationProfile, setOrganizationProfile] = useState<OrganizationProfile | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedLead, setSelectedLead] = useState<LeadRecord | null>(null);
   const [timeline, setTimeline] = useState<LeadEvent[]>([]);
@@ -91,6 +105,8 @@ function App() {
   const [teamNames, setTeamNames] = useState<string[]>([]);
   const authUserId = useRef<string | null>(null);
   const logoutInProgress = useRef(false);
+  const leadPageAbort = useRef<AbortController | null>(null);
+  const loadMoreAbort = useRef<AbortController | null>(null);
 
   useEffect(() => {
     void redirectToCanonicalDomain().catch(() => {
@@ -118,7 +134,7 @@ function App() {
 
   const clearWorkspaceState = useCallback(() => {
     setMembership(null);
-    setWorkspaceSummary(null);
+    setOrganizationProfile(null);
     setTeams([]);
     setSelectedLead(null);
     setTimeline([]);
@@ -127,13 +143,22 @@ function App() {
     setOperationLeads([]);
     setUnreadNotifications(0);
     setLeads(isSupabaseConfigured ? [] : initialLeads);
+    setTotalLeadCount(isSupabaseConfigured ? 0 : initialLeads.length);
     setTeamNames([]);
     setMembershipError("");
     setQuery("");
     setView("Overview");
     setSidebarOpen(false);
     setShowLeadForm(false);
+    leadPageAbort.current?.abort();
+    loadMoreAbort.current?.abort();
+    setIsLoadingMoreLeads(false);
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -201,30 +226,15 @@ function App() {
       if (current.role === "super_admin") {
         if (path === "/login" || path === "/dashboard" || path === "/") window.history.replaceState({}, "", "/super-admin/dashboard");
         setView(isPlatformUsersPath(path) ? "Users" : "Platform");
-      } else if (path === "/super-admin/dashboard" || path === "/super-admin/login" || isPlatformUsersPath(path)) {
+        setOrganizationProfile(null);
+        setTeamNames([]);
+        return;
+      }
+      if (path === "/super-admin/dashboard" || path === "/super-admin/login" || isPlatformUsersPath(path)) {
         window.history.replaceState({}, "", "/dashboard");
         setView("Overview");
       }
       if (getDocumentationCenter(path) || isSaasAdminPath(path)) return;
-      try {
-        const [summary, currentTeams, currentSalespeople, currentTeamNames] = await Promise.all([
-          getWorkspaceSummary(current.organization_id),
-          listTeams(current.organization_id),
-          listOrganizationSalespeople(current.organization_id),
-          listUserTeamNames(current.organization_id, current.user_id),
-        ]);
-        if (!active) return;
-        setWorkspaceSummary(summary);
-        setTeams(currentTeams);
-        setSalespeople(currentSalespeople);
-        setTeamNames(currentTeamNames);
-        if (current.role === "agent") {
-          const currentPerformance = await getPersonalPerformance(current.organization_id, current.user_id);
-          if (active) setPerformance(currentPerformance);
-        }
-      } catch (error) {
-        if (active) notify(error instanceof Error ? error.message : "Workspace data could not be loaded.");
-      }
     }).catch((error: Error) => {
       if (!active) return;
       setMembership(null);
@@ -233,6 +243,43 @@ function App() {
     });
     return () => { active = false; };
   }, [session?.user.id, membershipRefresh]);
+
+  useEffect(() => {
+    if (!membership || membership.role === "super_admin" || getDocumentationCenter(window.location.pathname) || isSaasAdminPath(window.location.pathname)) return;
+    let active = true;
+    void Promise.all([
+      getOrganizationProfile(membership.organization_id),
+      listUserTeamNames(membership.organization_id, membership.user_id),
+    ]).then(([profile, names]) => {
+      if (!active) return;
+      setOrganizationProfile(profile);
+      setTeamNames(names);
+    }).catch((error) => {
+      if (active) notify(error instanceof Error ? error.message : "Workspace details could not be loaded.");
+    });
+    return () => { active = false; };
+  }, [membership?.organization_id, membership?.user_id, membership?.role]);
+
+  useEffect(() => {
+    if (!membership || membership.role !== "agent" || view !== "Overview") {
+      setPerformance(null);
+      return;
+    }
+    let active = true;
+    void getPersonalPerformance(membership.organization_id, membership.user_id)
+      .then((currentPerformance) => { if (active) setPerformance(currentPerformance); })
+      .catch((error) => { if (active) notify(error instanceof Error ? error.message : "Performance data could not be loaded."); });
+    return () => { active = false; };
+  }, [membership?.organization_id, membership?.user_id, membership?.role, view]);
+
+  useEffect(() => {
+    if (!membership || view !== "Teams" || !["company_owner", "organization_admin", "manager"].includes(membership.role)) return;
+    let active = true;
+    void listTeams(membership.organization_id)
+      .then((currentTeams) => { if (active) setTeams(currentTeams); })
+      .catch((error) => { if (active) notify(error instanceof Error ? error.message : "Teams could not be loaded."); });
+    return () => { active = false; };
+  }, [membership?.organization_id, membership?.role, view]);
 
   useEffect(() => {
     const path = window.location.pathname;
@@ -247,26 +294,71 @@ function App() {
   }, [session, membershipLoaded, membership]);
 
   useEffect(() => {
-    if (!supabase || !session || !membership || getDocumentationCenter(window.location.pathname) || isDomainAdminPath(window.location.pathname)) return;
+    if (!supabase || !session || !membership || membership.role === "super_admin" || getDocumentationCenter(window.location.pathname) || isSaasAdminPath(window.location.pathname)) return;
     let active = true;
-    void listNotifications()
-      .then((items) => { if (active) setUnreadNotifications(items.filter((item) => !item.read_at).length); })
+    void countUnreadNotifications(membership.organization_id, membership.user_id)
+      .then((count) => { if (active) setUnreadNotifications(count); })
       .catch((error: Error) => { if (active) notify(error.message || "Notifications could not be loaded."); });
     return () => { active = false; };
-  }, [session?.user.id, membership?.organization_id, view]);
+  }, [session?.user.id, membership?.organization_id, membership?.role]);
 
   useEffect(() => {
-    if (!supabase || !session || !membership || getDocumentationCenter(window.location.pathname) || isDomainAdminPath(window.location.pathname)) return;
+    leadPageAbort.current?.abort();
+    loadMoreAbort.current?.abort();
+    setIsLoadingMoreLeads(false);
+    if (!supabase || !session || !membership || membership.role === "super_admin" || !leadLoadingViews.has(view) || getDocumentationCenter(window.location.pathname) || isSaasAdminPath(window.location.pathname)) {
+      setIsLoadingLeads(false);
+      return;
+    }
     let active = true;
-    void listLeads(query).then((records) => {
+    const controller = new AbortController();
+    leadPageAbort.current = controller;
+    setIsLoadingLeads(true);
+    void listLeadsPage(debouncedQuery, { offset: 0, limit: LEAD_PAGE_SIZE, includeTotal: true, signal: controller.signal }).then((page) => {
       if (!active) return;
-      setOperationLeads(records);
-      setLeads(records.map(toUiLead));
-    }).catch((error: Error) => { if (active) notify(error.message || "Leads could not be loaded."); });
-    return () => { active = false; };
-  }, [query, session?.user.id, membership?.organization_id]);
+      setOperationLeads(page.records);
+      setLeads(page.records.map(toUiLead));
+      setTotalLeadCount(page.totalCount ?? page.records.length);
+      setIsLoadingLeads(false);
+    }).catch((error: Error) => {
+      if (active && !controller.signal.aborted) notify(error.message || "Leads could not be loaded.");
+      if (active) setIsLoadingLeads(false);
+    });
+    return () => {
+      active = false;
+      controller.abort();
+      loadMoreAbort.current?.abort();
+    };
+  }, [debouncedQuery, session?.user.id, membership?.organization_id, membership?.role, view]);
 
-  const filteredLeads = useMemo(() => leads.filter((lead) =>
+  const loadMoreLeads = async (): Promise<boolean> => {
+    if (!supabase || !membership || isLoadingMoreLeads || operationLeads.length >= totalLeadCount) return false;
+    loadMoreAbort.current?.abort();
+    const controller = new AbortController();
+    loadMoreAbort.current = controller;
+    setIsLoadingMoreLeads(true);
+    try {
+      const page = await listLeadsPage(debouncedQuery, {
+        offset: operationLeads.length,
+        limit: LEAD_PAGE_SIZE,
+        includeTotal: false,
+        signal: controller.signal,
+      });
+      if (!controller.signal.aborted) {
+        setOperationLeads((current) => [...current, ...page.records]);
+        setLeads((current) => [...current, ...page.records.map(toUiLead)]);
+        if (page.records.length < LEAD_PAGE_SIZE) setTotalLeadCount(operationLeads.length + page.records.length);
+      }
+      return !controller.signal.aborted && page.records.length > 0;
+    } catch (error) {
+      if (!controller.signal.aborted) notify(error instanceof Error ? error.message : "More leads could not be loaded.");
+      return false;
+    } finally {
+      if (!controller.signal.aborted) setIsLoadingMoreLeads(false);
+    }
+  };
+
+  const filteredLeads = useMemo(() => isSupabaseConfigured ? leads : leads.filter((lead) =>
     `${lead.name} ${lead.company} ${lead.id} ${lead.source}`.toLowerCase().includes(query.toLowerCase()),
   ), [leads, query]);
 
@@ -283,7 +375,12 @@ function App() {
     if (supabase) {
       try {
         const saved = await createLead({ full_name: name, company: String(form.get("company") || "New account"), phone: String(form.get("phone") || "") || null });
-        setLeads((current) => [toUiLead(saved), ...current]);
+        const uiLead = toUiLead(saved);
+        if (!debouncedQuery) {
+          setLeads((current) => [uiLead, ...current]);
+          setOperationLeads((current) => [saved, ...current]);
+          setTotalLeadCount((current) => current + 1);
+        }
       } catch (error) {
         notify(error instanceof Error ? error.message : "Could not create lead");
         return;
@@ -294,6 +391,22 @@ function App() {
     }, ...current]);
     setShowLeadForm(false);
     notify("Lead created successfully");
+  };
+
+  const loadLeadDetails = async (externalId: string) => {
+    if (!supabase || !membership) return;
+    try {
+      const record = await getLeadByExternalId(externalId);
+      const [events, people] = await Promise.all([
+        listLeadTimeline(record.id),
+        listOrganizationSalespeople(membership.organization_id),
+      ]);
+      setSelectedLead(record);
+      setTimeline(events);
+      setSalespeople(people);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not open lead");
+    }
   };
 
   const handleLogout = async () => {
@@ -334,23 +447,25 @@ function App() {
     if (!session || !membershipLoaded || !membership || !canAccessDocumentation(window.location.pathname, membership)) {
       return <PublicLoading message="Verifying documentation access" />;
     }
-    return <DocumentationCenter centerId={documentationCenter} membership={membership} />;
+    return <Suspense fallback={<PublicLoading message="Loading documentation" />}><DocumentationCenter centerId={documentationCenter} membership={membership} /></Suspense>;
   }
   if (isSaasAdminPath(window.location.pathname) && (!session || !membershipLoaded || !membership || membership.role !== "super_admin" || !membership.is_active)) {
     return <PublicLoading message="Verifying platform administrator access" />;
   }
   if (isDomainAdminPath(window.location.pathname)) {
-    return window.location.pathname === "/saas/admin/domains/links"
-      ? <DomainLinksView />
-      : <DomainManagementView onOpenLinks={() => window.location.assign("/saas/admin/domains/links")} />;
+    return <Suspense fallback={<div className="route-loading" role="status">Loading domain management…</div>}>
+      {window.location.pathname === "/saas/admin/domains/links"
+        ? <DomainLinksView />
+        : <DomainManagementView onOpenLinks={() => window.location.assign("/saas/admin/domains/links")} />}
+    </Suspense>;
   }
   if (!session) return <PublicRoute session={session}><PublicLayout><PublicPage path={window.location.pathname} /></PublicLayout></PublicRoute>;
   if (isSupabaseConfigured && !membershipLoaded) return <div className="public-loading"><div className="muted">Verifying organization access...</div></div>;
-  if (isSupabaseConfigured && !membership && !membershipError) return <WorkspaceOnboardingView
+  if (isSupabaseConfigured && !membership && !membershipError) return <Suspense fallback={<PublicLoading message="Loading workspace setup" />}><WorkspaceOnboardingView
     onRefreshMembership={() => setMembershipRefresh((value) => value + 1)}
     onSignOut={() => void handleLogout().catch(() => undefined)}
     onNotify={notify}
-  />;
+  /></Suspense>;
   if (isSupabaseConfigured && (!membership || membershipError)) return <section className="auth-page"><div className="modal auth-card"><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">WORKSPACE ACCESS</p><h1>{membershipError ? "Access could not be verified" : "No active organization"}</h1><p className="muted">{membershipError || "Your account does not have an active organization membership."}</p>{membershipError && <button className="button secondary auth-submit" onClick={() => setMembershipRefresh((value) => value + 1)}>Try again</button>}<button className="button primary auth-submit" onClick={() => void handleLogout().catch(() => undefined)}>Sign out</button></div></section>;
   return <ProtectedRoute session={session ?? null} allowAnonymous={!isSupabaseConfigured}><DashboardLayout>{(
     <div className="app-shell">
@@ -359,7 +474,7 @@ function App() {
         if (event.target instanceof Element && event.target.closest(".nav-item")) setSidebarOpen(false);
       }}>
         <div className="brand"><div className="brand-mark">A</div><span>adometa</span><button className="close-menu" aria-label="Close navigation" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
-        <div className="workspace-switcher"><div className="workspace-avatar">{workspaceSummary?.organizationName?.slice(0, 2).toUpperCase() || "OR"}</div><div><strong>{workspaceSummary?.organizationName || "Organization"}</strong><small>Workspace</small></div><ChevronDown size={16} /></div>
+        <div className="workspace-switcher"><div className="workspace-avatar">{organizationProfile?.name?.slice(0, 2).toUpperCase() || "OR"}</div><div><strong>{organizationProfile?.name || "Organization"}</strong><small>Workspace</small></div><ChevronDown size={16} /></div>
         <p className="nav-heading">WORKSPACE</p>
         {membership?.role === "super_admin" && <nav><button className={`nav-item ${view === "Platform" ? "active" : ""}`} onClick={() => { setView("Platform"); window.history.replaceState({}, "", "/super-admin/dashboard"); }}><ShieldCheck size={18} /><span>Platform administration</span></button><a className={`nav-item ${view === "Users" ? "active" : ""}`} href="/saas/admin/users"><UserPlus size={18} /><span>Users</span></a><a className="nav-item" href="/saas/admin/domains"><Globe2 size={18} /><span>Domains / Custom Domains</span></a><button className={`nav-item ${view === "Growth Tools" ? "active" : ""}`} onClick={() => setView("Growth Tools")}><Wrench size={18} /><span>Growth Tools</span></button><button className={`nav-item ${view === "License Register" ? "active" : ""}`} onClick={() => setView("License Register")}><ShieldCheck size={18} /><span>License register</span></button><button className={`nav-item ${view === "Database Monitoring" ? "active" : ""}`} onClick={() => setView("Database Monitoring")}><Database size={18} /><span>Database monitoring</span></button></nav>}
         <nav>{navItems.filter(({ label }) => membership?.role !== "super_admin" && (label !== "Teams" || membership?.role === "company_owner" || membership?.role === "organization_admin" || membership?.role === "manager")).map(({ label, icon: Icon }) => <button key={label} className={view === label ? "nav-item active" : "nav-item"} onClick={() => { setView(label); setSidebarOpen(false); }}><Icon size={18} /><span>{label}</span>{label === "Leads" && <em>{isSupabaseConfigured ? leads.length : "Demo"}</em>}</button>)}</nav>
@@ -382,7 +497,7 @@ function App() {
         <div className="sidebar-bottom"><div className="upgrade-card"><Zap size={17} /><strong>Make more happen</strong><p>Unlock advanced analytics and automation.</p><button onClick={() => notify("Upgrade request noted")}>Explore plans <ArrowUpRight size={14} /></button></div></div>
       </aside>
       <main className="main-content">
-        <header className="topbar"><button className="mobile-menu" aria-label="Open navigation" aria-expanded={sidebarOpen} aria-controls="workspace-navigation" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>{view}</strong></div><div className="topbar-actions"><div className="global-search"><Search size={17} /><input placeholder="Search anything..." value={query} onChange={(e) => setQuery(e.target.value)} /><kbd>⌘ K</kbd></div><a className="icon-button" aria-label="Help center" title="Help center" href={membership?.role === "super_admin" ? "/saas/admin/docs" : membership?.role === "company_owner" || membership?.role === "organization_admin" ? "/admin/docs" : "/docs"}><CircleHelp size={19} /></a><button className="icon-button notification" aria-label={`Notifications${unreadNotifications ? ` (${unreadNotifications} unread)` : ""}`} onClick={() => setView("Notifications")}><Bell size={19} />{unreadNotifications > 0 && <span className="notification-count">{unreadNotifications}</span>}</button>{membership && <ProfileMenu session={session} membership={membership} organizationName={workspaceSummary?.organizationName || ""} organizationIsActive={workspaceSummary?.organizationIsActive ?? null} teamNames={teamNames} onLogout={handleLogout} />}</div></header>
+        <header className="topbar"><button className="mobile-menu" aria-label="Open navigation" aria-expanded={sidebarOpen} aria-controls="workspace-navigation" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>{view}</strong></div><div className="topbar-actions"><div className="global-search"><Search size={17} /><input placeholder="Search anything..." value={query} onChange={(e) => setQuery(e.target.value)} /><kbd>⌘ K</kbd></div><a className="icon-button" aria-label="Help center" title="Help center" href={membership?.role === "super_admin" ? "/saas/admin/docs" : membership?.role === "company_owner" || membership?.role === "organization_admin" ? "/admin/docs" : "/docs"}><CircleHelp size={19} /></a><button className="icon-button notification" aria-label={`Notifications${unreadNotifications ? ` (${unreadNotifications} unread)` : ""}`} onClick={() => setView("Notifications")}><Bell size={19} />{unreadNotifications > 0 && <span className="notification-count">{unreadNotifications}</span>}</button>{membership && <ProfileMenu session={session} membership={membership} organizationName={organizationProfile?.name || ""} organizationIsActive={organizationProfile?.is_active ?? null} teamNames={teamNames} onLogout={handleLogout} />}</div></header>
         <div className="page-content">
           {view === "Platform" && membership && <PlatformAdminView membership={membership} onNotify={notify} />}
           {view === "Users" && membership?.role === "super_admin" && <PlatformUserManagementView onNotify={notify} onOpenCompanies={() => { setView("Platform"); window.history.replaceState({}, "", "/super-admin/dashboard"); }} />}
@@ -392,19 +507,21 @@ function App() {
           {view === "Automation" && membership && <AutomationView membership={membership} onNotify={notify} />}
           {view === "Sales Pipeline" && membership && <SalesPipelineView membership={membership} onNotify={notify} />}
           {view === "Customer 360" && membership && <Customer360View membership={membership} onNotify={notify} />}
-          {view === "Overview" && <Overview leads={leads} performance={performance} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => setView("Leads")} />}
-          {view === "Leads" && <LeadsView leads={filteredLeads} query={query} onAdd={() => setShowLeadForm(true)} onOpen={async (externalId) => { if (!supabase) return; try { const record = await getLeadByExternalId(externalId); setSelectedLead(record); setTimeline(await listLeadTimeline(record.id)); } catch (error) { notify(error instanceof Error ? error.message : "Could not open lead"); } }} onStatusChange={async (id, status) => { try { if (supabase) await updateLeadStatus(id, status.toLowerCase().replace("-", "_") as LeadStatus); setLeads((all) => all.map((lead) => lead.id === id ? { ...lead, status } : lead)); notify("Lead status updated"); } catch (error) { notify(error instanceof Error ? error.message : "Could not update lead"); } }} />}
+          <Suspense fallback={<div className="route-loading" role="status">Loading this view…</div>}>
+          {view === "Overview" && <Overview leads={leads} totalLeadCount={totalLeadCount} performance={performance} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => setView("Leads")} />}
+          {view === "Leads" && <LeadsView leads={filteredLeads} totalCount={totalLeadCount} isLoading={isLoadingLeads} isSearchPending={query.trim() !== debouncedQuery} isLoadingMore={isLoadingMoreLeads} hasMore={Boolean(supabase) && operationLeads.length < totalLeadCount} onLoadMore={() => void loadMoreLeads()} query={query} onAdd={() => setShowLeadForm(true)} onOpen={(externalId) => void loadLeadDetails(externalId)} onStatusChange={async (id, status) => { try { if (supabase) await updateLeadStatus(id, status.toLowerCase().replace("-", "_") as LeadStatus); setLeads((all) => all.map((lead) => lead.id === id ? { ...lead, status } : lead)); notify("Lead status updated"); } catch (error) { notify(error instanceof Error ? error.message : "Could not update lead"); } }} />}
           {view === "Campaigns" && (isSupabaseConfigured ? <ModulePending eyebrow="CAMPAIGN MANAGEMENT" title="Campaigns" description="Campaign records will appear here after the campaign repository is connected." icon={<Target size={24} />} /> : <Campaigns onNotify={notify} />)}
           {view === "Follow-ups" && (membership ? <FollowUpsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FOLLOW-UP QUEUE" title="Follow-ups" description="An authenticated organization membership is required." icon={<ClipboardList size={24} />} />)}
-          {view === "Calling" && <CallingWorkspace leads={filteredLeads} membership={membership} onNotify={notify} />}
+          {view === "Calling" && <CallingWorkspace leads={filteredLeads} membership={membership} hasMore={Boolean(supabase) && operationLeads.length < totalLeadCount} isLoadingMore={isLoadingMoreLeads} onLoadMore={loadMoreLeads} onNotify={notify} />}
           {view === "Site Visits" && (membership ? <SiteVisitsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FIELD WORK" title="Site visits" description="An authenticated organization membership is required." icon={<CalendarDays size={24} />} />)}
           {view === "Bookings" && (membership ? <BookingsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="REVENUE" title="Bookings" description="An authenticated organization membership is required." icon={<Target size={24} />} />)}
           {view === "Teams" && (membership?.role === "company_owner" || membership?.role === "organization_admin" || membership?.role === "manager" ? <TeamsView membership={membership} teams={teams} onCreated={(team) => setTeams((current) => [team, ...current])} onNotify={notify} /> : <ModulePending eyebrow="TEAM MANAGEMENT" title="Teams & roles" description="Your current role does not have access to team management." icon={<UsersRound size={24} />} />)}
           {view === "Company" && membership && <><CompanyAdminView membership={membership} onNotify={notify} /><OrganizationAdminControls organizationId={membership.organization_id} onNotify={notify} /></>}
           {view === "Reports" && (membership ? <ReportsView membership={membership} onNotify={notify} /> : <ModulePending eyebrow="ANALYTICS" title="Reports & analytics" description="An authenticated organization membership is required." icon={<PieChart size={24} />} />)}
-          {view === "Notifications" && (membership ? <NotificationsView membership={membership} onNotify={notify} /> : <ModulePending eyebrow="ACTIVITY CENTER" title="Notifications" description="An authenticated organization membership is required." icon={<Bell size={24} />} />)}
+          {view === "Notifications" && (membership ? <NotificationsView membership={membership} onNotify={notify} onUnreadCount={setUnreadNotifications} /> : <ModulePending eyebrow="ACTIVITY CENTER" title="Notifications" description="An authenticated organization membership is required." icon={<Bell size={24} />} />)}
           {view === "Statuses" && (membership?.role === "company_owner" || membership?.role === "organization_admin" ? <StatusSettingsView membership={membership} onNotify={notify} /> : <ModulePending eyebrow="WORKSPACE SETTINGS" title="Lead statuses" description="Only company owners and organization admins can manage statuses." icon={<Settings size={24} />} />)}
           {view === "Integrations" && <Integrations onNotify={notify} />}
+          </Suspense>
         </div>
       </main>
       {showLeadForm && <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setShowLeadForm(false)}><form className="modal" onSubmit={addLead}><div className="modal-head"><div><p className="eyebrow">NEW RECORD</p><h2>Create a lead</h2></div><button type="button" className="icon-button" onClick={() => setShowLeadForm(false)}><X size={19} /></button></div><label>Full name<input name="name" required placeholder="e.g. Rohan Mehta" autoFocus /></label><label>Company<input name="company" placeholder="e.g. Acme Pvt. Ltd." /></label><label>Phone number<input name="phone" type="tel" placeholder="+91 98765 43210" /></label><div className="modal-actions"><button type="button" className="button secondary" onClick={() => setShowLeadForm(false)}>Cancel</button><button className="button primary" type="submit">Create lead</button></div></form></div>}
@@ -441,7 +558,7 @@ function PublicPage({ path }: { path: string }) {
   if (path === "/signup") return <SignupScreen />;
   if (path === "/workspace/create") return <div className="auth-card workspace-signin-prompt"><p className="eyebrow">WORKSPACE SETUP</p><h1>Sign in to set up your workspace</h1><p className="muted">Confirm your email address and sign in to submit a company workspace request.</p><a className="button primary auth-submit" href="/login">Sign in</a></div>;
   if (path === "/reset-password") return <ResetPasswordScreen />;
-  return <MarketingPublicPage path={path} />;
+  return <Suspense fallback={<div className="route-loading" role="status">Loading page…</div>}><MarketingPublicPage path={path} /></Suspense>;
 }
 
 function SuperAdminLoginScreen() {
@@ -523,22 +640,23 @@ function ResetPasswordScreen() {
   return <form className="modal auth-card" onSubmit={submit}><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">PASSWORD RESET</p><h1>Choose a new password</h1><p className="muted">Use a strong password for your secure workspace.</p><label>New password<input required minLength={8} type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{message && <p className="auth-message">{message}</p>}<button className="button primary auth-submit" disabled={busy}>{busy ? "Saving..." : "Update password"}</button><a className="text-button auth-toggle" href="/login">Back to sign in</a></form>;
 }
 
-function Overview({ leads, performance, onAdd, onViewLeads, userName }: { leads: Lead[]; performance: PersonalPerformance | null; onAdd: () => void; onViewLeads: () => void; userName: string }) {
+function Overview({ leads, totalLeadCount, performance, onAdd, onViewLeads, userName }: { leads: Lead[]; totalLeadCount: number; performance: PersonalPerformance | null; onAdd: () => void; onViewLeads: () => void; userName: string }) {
   const count = (status: Status) => leads.filter((lead) => lead.status === status).length;
   const conversionRate = leads.length ? `${Math.round((count("Won") / leads.length) * 100)}%` : "0%";
   const pipeline = [["New", count("New"), "purple"], ["Contacted", count("Contacted"), "blue"], ["Qualified", count("Qualified"), "green"], ["Follow-up", count("Follow-up"), "orange"], ["Won", count("Won"), "dark"]] as const;
   const stats: Array<{ label: string; value: string | number; change: string; Icon: LucideIcon; note: string }> = [
-    { label: "Total leads", value: leads.length, change: "Current", Icon: Users, note: "authorized records" },
-    { label: "Qualified leads", value: count("Qualified"), change: "Current", Icon: TrendingUp, note: "authorized records" },
-    { label: "Follow-ups due", value: count("Follow-up"), change: "Current", Icon: ClipboardList, note: "requires attention" },
-    { label: "Conversion rate", value: conversionRate, change: "Current", Icon: Target, note: "won / total" },
+    { label: "Total leads", value: totalLeadCount, change: "Current", Icon: Users, note: "authorized records" },
+    { label: "Qualified leads", value: count("Qualified"), change: "Recent", Icon: TrendingUp, note: `latest ${leads.length} loaded leads` },
+    { label: "Follow-ups due", value: count("Follow-up"), change: "Recent", Icon: ClipboardList, note: `latest ${leads.length} loaded leads` },
+    { label: "Conversion rate", value: conversionRate, change: "Recent", Icon: Target, note: "among latest loaded leads" },
   ];
-  const exportCsv = () => { const rows = [["Lead ID", "Name", "Company", "Source", "Status", "Score"], ...leads.map((lead) => [lead.id, lead.name, lead.company, lead.source, lead.status, String(lead.score)])]; const csv = rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = "adometa-authorized-leads.csv"; link.click(); URL.revokeObjectURL(link.href); };
-  return <><PageHeader eyebrow="LIVE WORKSPACE" title={`Good morning, ${userName || "there"}`} description="Here’s what’s happening with your sales pipeline today." action={<div className="page-actions"><button className="button secondary" onClick={exportCsv}>Export CSV</button><button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} />{performance && <section className="card personal-performance"><div className="card-header"><div><h2>My performance</h2><p>Authorized records for your salesperson account</p></div><span className="pending-pill">Live data</span></div><div className="performance-grid">{[["Assigned leads", performance.assignedLeads], ["Calls made", performance.calls], ["Follow-ups due", performance.followUpsDue], ["Visits completed", performance.visitsCompleted], ["Bookings", performance.bookings], ["Lost leads", performance.lostLeads]].map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div></section>}<div className="stats-grid">{stats.map(({ label, value, change, Icon, note }) => <div className="stat-card" key={label}><div className="stat-top"><span>{label}</span><div className="stat-icon"><Icon size={17} /></div></div><strong>{value}</strong><div className="stat-foot"><span className="neutral">{change}</span><small>{note}</small></div></div>)}</div><div className="dashboard-grid"><section className="card pipeline-card"><div className="card-header"><div><h2>Pipeline overview</h2><p>Lead progression across your sales stages</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><div className="funnel">{pipeline.map(([stage, stageCount, color]) => { const percent = leads.length ? Math.round((stageCount / leads.length) * 100) : 0; return <div className="funnel-row" key={stage}><span className="funnel-label">{stage}</span><div className="funnel-track"><div className={`funnel-bar ${color}`} style={{ width: `${percent}%` }} /></div><strong>{stageCount}</strong><small>{percent}%</small></div>; })}</div></section><section className="card activity-card"><div className="card-header"><div><h2>Recent leads</h2><p>Latest authorized records</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><div className="activity-list">{leads.slice(0, 4).map((lead) => <div className="activity-item" key={lead.id}><div className="activity-avatar green">{lead.name.split(" ").map((part) => part[0]).join("")}</div><div><p><strong>{lead.name}</strong> entered as {lead.status}</p><small>{lead.date}</small></div></div>)}</div></section></div><section className="card table-card"><div className="card-header"><div><h2>Recent leads</h2><p>Leads that need your attention</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><LeadTable leads={leads.slice(0, 4)} compact /></section></>;
+  const exportCsv = () => { const rows = [["Lead ID", "Name", "Company", "Source", "Status", "Score"], ...leads.map((lead) => [lead.id, lead.name, lead.company, lead.source, lead.status, String(lead.score)])]; const csv = rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = "adometa-loaded-leads.csv"; link.click(); URL.revokeObjectURL(link.href); };
+  return <><PageHeader eyebrow="LIVE WORKSPACE" title={`Good morning, ${userName || "there"}`} description="Here’s what’s happening with your sales pipeline today." action={<div className="page-actions"><button className="button secondary" onClick={exportCsv}>Export loaded leads</button><button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} />{performance && <section className="card personal-performance"><div className="card-header"><div><h2>My performance</h2><p>Authorized records for your salesperson account</p></div><span className="pending-pill">Live data</span></div><div className="performance-grid">{[["Assigned leads", performance.assignedLeads], ["Calls made", performance.calls], ["Follow-ups due", performance.followUpsDue], ["Visits completed", performance.visitsCompleted], ["Bookings", performance.bookings], ["Lost leads", performance.lostLeads]].map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div></section>}<div className="stats-grid">{stats.map(({ label, value, change, Icon, note }) => <div className="stat-card" key={label}><div className="stat-top"><span>{label}</span><div className="stat-icon"><Icon size={17} /></div></div><strong>{value}</strong><div className="stat-foot"><span className="neutral">{change}</span><small>{note}</small></div></div>)}</div><div className="dashboard-grid"><section className="card pipeline-card"><div className="card-header"><div><h2>Pipeline overview</h2><p>Stage mix among the latest {leads.length} loaded leads</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><div className="funnel">{pipeline.map(([stage, stageCount, color]) => { const percent = leads.length ? Math.round((stageCount / leads.length) * 100) : 0; return <div className="funnel-row" key={stage}><span className="funnel-label">{stage}</span><div className="funnel-track"><div className={`funnel-bar ${color}`} style={{ width: `${percent}%` }} /></div><strong>{stageCount}</strong><small>{percent}%</small></div>; })}</div></section><section className="card activity-card"><div className="card-header"><div><h2>Recent leads</h2><p>Latest authorized records</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><div className="activity-list">{leads.slice(0, 4).map((lead) => <div className="activity-item" key={lead.id}><div className="activity-avatar green">{lead.name.split(" ").map((part) => part[0]).join("")}</div><div><p><strong>{lead.name}</strong> entered as {lead.status}</p><small>{lead.date}</small></div></div>)}</div></section></div><section className="card table-card"><div className="card-header"><div><h2>Recent leads</h2><p>Leads that need your attention</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><LeadTable leads={leads.slice(0, 4)} compact /></section></>;
 }
 
-function LeadsView({ leads, query, onAdd, onOpen, onStatusChange }: { leads: Lead[]; query: string; onAdd: () => void; onOpen: (id: string) => void; onStatusChange: (id: string, status: Status) => void }) {
-  return <><PageHeader eyebrow="LEAD MANAGEMENT" title="Leads" description={`${leads.length} leads matching your current view.`} action={<button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button>} /><div className="toolbar"><div className="filter-search"><Search size={17} /><input placeholder="Search leads..." value={query} readOnly /></div><button className="button secondary"><Filter size={16} /> Filters <span className="filter-count">2</span></button><button className="button secondary"><CalendarDays size={16} /> Date added <ChevronDown size={15} /></button></div><section className="card table-card"><LeadTable leads={leads} onOpen={onOpen} onStatusChange={onStatusChange} /></section></>;
+function LeadsView({ leads, totalCount, isLoading, isSearchPending, isLoadingMore, hasMore, onLoadMore, query, onAdd, onOpen, onStatusChange }: { leads: Lead[]; totalCount: number; isLoading: boolean; isSearchPending: boolean; isLoadingMore: boolean; hasMore: boolean; onLoadMore: () => void; query: string; onAdd: () => void; onOpen: (id: string) => void; onStatusChange: (id: string, status: Status) => void }) {
+  const isRefreshing = isLoading || isSearchPending;
+  return <><PageHeader eyebrow="LEAD MANAGEMENT" title="Leads" description={isRefreshing && leads.length ? "Updating results; the previous result set remains visible." : `Showing ${leads.length} of ${totalCount} matching authorized leads.`} action={<button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button>} /><div className="toolbar"><div className="filter-search"><Search size={17} /><input placeholder="Search leads..." value={query} readOnly /></div><button className="button secondary"><Filter size={16} /> Filters <span className="filter-count">2</span></button><button className="button secondary"><CalendarDays size={16} /> Date added <ChevronDown size={15} /></button></div><section className="card table-card">{isLoading && !leads.length ? <div className="route-loading" role="status">Loading leads…</div> : <LeadTable leads={leads} onOpen={onOpen} onStatusChange={onStatusChange} />}{hasMore && <div className="lead-pagination"><button className="button secondary" disabled={isLoadingMore} onClick={onLoadMore}>{isLoadingMore ? "Loading…" : `Load more (${totalCount - leads.length} remaining)`}</button></div>}</section></>;
 }
 
 function LeadTable({ leads, compact = false, onOpen, onStatusChange }: { leads: Lead[]; compact?: boolean; onOpen?: (id: string) => void; onStatusChange?: (id: string, status: Status) => void }) {
@@ -582,7 +700,7 @@ function LeadDetails({ lead, events, salespeople, onClose, onNotify, onRefresh }
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="modal lead-details"><div className="modal-head"><div><p className="eyebrow">LEAD JOURNEY</p><h2>{lead.full_name}</h2><p className="muted">{lead.external_id} · {lead.source}</p></div><button className="icon-button" onClick={onClose}><X size={19} /></button></div><div className="lead-detail-grid"><div><h3>Permanent timeline</h3><div className="timeline">{events.length ? events.map((event) => <div className="timeline-event" key={event.id}><span /><div><strong>{event.event_type.replace(/_/g, " ")}</strong><small>{new Date(event.created_at).toLocaleString()} {event.actor_name ? `· ${event.actor_name}` : ""}</small>{event.notes && <p>{event.notes}</p>}</div></div>) : <p className="muted">No journey events are available yet.</p>}</div><div className="whatsapp-box"><h3>Personal WhatsApp</h3><textarea value={whatsappText} onChange={(event) => setWhatsappText(event.target.value)} /><button className="button secondary" type="button" onClick={openWhatsApp}>Open WhatsApp</button><small>Opened only; delivery is not confirmed.</small></div></div><form className="share-panel" onSubmit={submit}><div className="share-tabs"><button type="button" className={mode === "share" ? "active" : ""} onClick={() => setMode("share")}>Share access</button><button type="button" className={mode === "transfer" ? "active" : ""} onClick={() => setMode("transfer")}>Transfer owner</button></div><label>Salesperson<select required value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Select teammate</option>{salespeople.filter((person) => person.user_id !== lead.assigned_to).map((person) => <option key={person.user_id} value={person.user_id}>{person.profiles?.full_name || person.user_id.slice(0, 8)}</option>)}</select></label>{mode === "share" && <label>Access expiry<input type="datetime-local" value={expiry} onChange={(event) => setExpiry(event.target.value)} /></label>}<label>{mode === "share" ? "Reason" : "Transfer reason"}<textarea required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain this lead action" /></label><button className="button primary" disabled={busy}>{busy ? "Saving..." : mode === "share" ? "Share lead access" : "Transfer ownership"}</button></form></div></section></div>;
 }
 
-function CallingWorkspace({ leads, membership, onNotify }: { leads: Lead[]; membership: Membership | null; onNotify: (message: string) => void }) {
+function CallingWorkspace({ leads, membership, hasMore, isLoadingMore, onLoadMore, onNotify }: { leads: Lead[]; membership: Membership | null; hasMore: boolean; isLoadingMore: boolean; onLoadMore: () => Promise<boolean>; onNotify: (message: string) => void }) {
   const [index, setIndex] = useState(0);
   const [startedAt, setStartedAt] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
@@ -597,7 +715,19 @@ function CallingWorkspace({ leads, membership, onNotify }: { leads: Lead[]; memb
     const timer = window.setInterval(() => setSeconds(Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)), 1000);
     return () => window.clearInterval(timer);
   }, [startedAt]);
-  const next = () => { setIndex((current) => (current + 1) % Math.max(leads.length, 1)); setStartedAt(null); setSeconds(0); setOutcome(""); setNotes(""); setFollowUpAt(""); };
+  const next = async () => {
+    const nextIndex = index + 1;
+    if (nextIndex < leads.length) setIndex(nextIndex);
+    else if (hasMore && !isLoadingMore) {
+      const currentLength = leads.length;
+      setIndex(currentLength);
+      if (!await onLoadMore()) setIndex(Math.max(0, currentLength - 1));
+    } else setIndex(0);
+    setStartedAt(null);
+    setSeconds(0);
+    setOutcome("");
+    setFollowUpAt("");
+  };
   const completeCall = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!lead?.dbId || !membership || !startedAt) return onNotify("Start a manual call before saving its outcome.");
@@ -612,7 +742,7 @@ function CallingWorkspace({ leads, membership, onNotify }: { leads: Lead[]; memb
     try { await skipLead(lead.dbId, skipReason, skipNotes, followUpAt ? new Date(followUpAt).toISOString() : null); onNotify("Lead skipped and recorded"); next(); }
     catch (error) { onNotify(error instanceof Error ? error.message : "Could not skip lead"); }
   };
-  return <><PageHeader eyebrow="SMART CALLING QUEUE" title="Calling workspace" description="Manual confirmation mode is active until a supported telephony provider is configured." /><div className="calling-banner"><ShieldCheck size={17} /> No call is placed automatically. Use your device dialer, then record the outcome here.</div>{lead ? <div className="calling-grid"><section className="card current-lead-card"><div className="card-header"><div><p className="eyebrow">NEXT ELIGIBLE LEAD</p><h2>{lead.name}</h2><p>{lead.company} · {lead.source}</p></div><span className="status pending">{lead.status}</span></div><div className="calling-meta"><strong>{lead.phone || "Phone unavailable"}</strong><span>Priority is calculated from follow-up and lead state.</span><a className="button primary" href={lead.phone ? `tel:${lead.phone}` : undefined} onClick={() => { if (!lead.phone) onNotify("This lead has no phone number"); else if (!startedAt) { setStartedAt(new Date().toISOString()); setSeconds(0); } }}>{startedAt ? `Manual call active · ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : "Start manual call"}</a></div><button className="button secondary" onClick={next}>Next lead</button></section><form className="card call-outcome" onSubmit={completeCall}><h2>Call disposition</h2><label>Outcome<select required value={outcome} onChange={(event) => setOutcome(event.target.value)}><option value="">Select outcome</option><option value="connected">Connected</option><option value="callback">Call back required</option><option value="not_reachable">Not reachable</option><option value="not_interested">Not interested</option><option value="wrong_number">Wrong number</option></select></label><label>Next follow-up<input type="datetime-local" value={followUpAt} onChange={(event) => setFollowUpAt(event.target.value)} /></label><label>Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label><button className="button primary" disabled={!startedAt}>Save call outcome</button><div className="skip-row"><select value={skipReason} onChange={(event) => setSkipReason(event.target.value)}><option value="">Skip reason</option><option value="wrong_number">Wrong number</option><option value="not_interested">Not interested</option><option value="already_contacted">Already contacted</option><option value="customer_busy">Customer busy</option><option value="duplicate_lead">Duplicate lead</option><option value="invalid_lead">Invalid lead</option><option value="other">Other</option></select><input placeholder="Skip notes" value={skipNotes} onChange={(event) => setSkipNotes(event.target.value)} /><button type="button" className="button secondary" onClick={handleSkip}>Skip lead</button></div></form></div> : <section className="card empty-state"><Headphones size={24} /><strong>No eligible leads</strong><p>Authorized leads with valid contact data will appear here.</p></section>}</>;
+  return <><PageHeader eyebrow="SMART CALLING QUEUE" title="Calling workspace" description="Manual confirmation mode is active until a supported telephony provider is configured." /><div className="calling-banner"><ShieldCheck size={17} /> No call is placed automatically. Use your device dialer, then record the outcome here.</div>{lead ? <div className="calling-grid"><section className="card current-lead-card"><div className="card-header"><div><p className="eyebrow">NEXT ELIGIBLE LEAD</p><h2>{lead.name}</h2><p>{lead.company} · {lead.source}</p></div><span className="status pending">{lead.status}</span></div><div className="calling-meta"><strong>{lead.phone || "Phone unavailable"}</strong><span>Priority is calculated from follow-up and lead state.</span><a className="button primary" href={lead.phone ? `tel:${lead.phone}` : undefined} onClick={() => { if (!lead.phone) onNotify("This lead has no phone number"); else if (!startedAt) { setStartedAt(new Date().toISOString()); setSeconds(0); } }}>{startedAt ? `Manual call active · ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : "Start manual call"}</a></div><button className="button secondary" disabled={isLoadingMore} onClick={() => void next()}>{isLoadingMore ? "Loading next leads…" : "Next lead"}</button></section><form className="card call-outcome" onSubmit={completeCall}><h2>Call disposition</h2><label>Outcome<select required value={outcome} onChange={(event) => setOutcome(event.target.value)}><option value="">Select outcome</option><option value="connected">Connected</option><option value="callback">Call back required</option><option value="not_reachable">Not reachable</option><option value="not_interested">Not interested</option><option value="wrong_number">Wrong number</option></select></label><label>Next follow-up<input type="datetime-local" value={followUpAt} onChange={(event) => setFollowUpAt(event.target.value)} /></label><label>Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label><button className="button primary" disabled={!startedAt}>Save call outcome</button><div className="skip-row"><select value={skipReason} onChange={(event) => setSkipReason(event.target.value)}><option value="">Skip reason</option><option value="wrong_number">Wrong number</option><option value="not_interested">Not interested</option><option value="already_contacted">Already contacted</option><option value="customer_busy">Customer busy</option><option value="duplicate_lead">Duplicate lead</option><option value="invalid_lead">Invalid lead</option><option value="other">Other</option></select><input placeholder="Skip notes" value={skipNotes} onChange={(event) => setSkipNotes(event.target.value)} /><button type="button" className="button secondary" onClick={handleSkip}>Skip lead</button></div></form></div> : <section className="card empty-state"><Headphones size={24} /><strong>No eligible leads</strong><p>Authorized leads with valid contact data will appear here.</p></section>}</>;
 }
 
 function Campaigns({ onNotify }: { onNotify: (message: string) => void }) {

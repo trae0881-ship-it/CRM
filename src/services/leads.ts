@@ -3,19 +3,27 @@ import { buildLeadSearchFilter } from "../lib/leadSearch.mjs";
 import type { LeadEvent, LeadRecord, LeadStatus } from "../types/database";
 
 export type CreateLeadInput = Pick<LeadRecord, "full_name"> & Partial<Omit<LeadRecord, "id" | "organization_id" | "created_at" | "updated_at" | "external_id">>;
+export type LeadPage = { records: LeadRecord[]; totalCount: number | null };
 
 const requireClient = () => {
   if (!supabase) throw new Error("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
   return supabase;
 };
 
-export async function listLeads(search = ""): Promise<LeadRecord[]> {
+export async function listLeadsPage(
+  search = "",
+  options: { offset?: number; limit?: number; includeTotal?: boolean; signal?: AbortSignal } = {},
+): Promise<LeadPage> {
   const client = requireClient();
-  let query = client.from("leads").select("*").is("deleted_at", null).order("created_at", { ascending: false });
+  const offset = Math.max(0, Math.floor(options.offset ?? 0));
+  const limit = Math.min(100, Math.max(1, Math.floor(options.limit ?? 50)));
+  let query = client.from("leads").select("*", options.includeTotal === false ? undefined : { count: "exact" }).is("deleted_at", null).order("created_at", { ascending: false });
   if (search.trim()) query = query.or(buildLeadSearchFilter(search));
-  const { data, error } = await query;
+  let pageQuery = query.range(offset, offset + limit - 1);
+  if (options.signal) pageQuery = pageQuery.abortSignal(options.signal);
+  const { data, count, error } = await pageQuery;
   if (error) throw error;
-  return (data ?? []) as LeadRecord[];
+  return { records: (data ?? []) as LeadRecord[], totalCount: count ?? null };
 }
 
 export async function createLead(input: CreateLeadInput): Promise<LeadRecord> {

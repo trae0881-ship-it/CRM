@@ -65,10 +65,18 @@ export async function updateFollowUp(id: string, status: FollowUpStatus, notes =
   if (error) throw error;
 }
 
-export async function listNotifications() {
-  const { data, error } = await client().from("notifications").select("id,title,body,type,entity_type,entity_id,read_at,created_at").order("created_at", { ascending: false });
+export async function listNotifications(organizationId: string, userId: string) {
+  const { data, error } = await client().from("notifications").select("id,title,body,type,entity_type,entity_id,read_at,created_at")
+    .eq("organization_id", organizationId).eq("user_id", userId).order("created_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as Notification[];
+}
+
+export async function countUnreadNotifications(organizationId: string, userId: string): Promise<number> {
+  const { count, error } = await client().from("notifications").select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId).eq("user_id", userId).is("read_at", null);
+  if (error) throw error;
+  return count ?? 0;
 }
 
 export async function markNotificationRead(id: string) {
