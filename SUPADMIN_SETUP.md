@@ -2,7 +2,7 @@
 
 Status: **WAITING FOR DEPLOYMENT**
 
-Frontend URL: `https://purple-oryx-575835.hostingersite.com`
+Frontend URL: use the deployment hostname configured for this environment. See the [domain setup guide](./docs/DOMAIN_SETUP.html) before connecting a custom domain.
 
 Super Admin is not assignable through public signup. The one-time bootstrap requires:
 

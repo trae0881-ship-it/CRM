@@ -1,0 +1,25 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createDatabaseServer } from "../services/server.mjs";
+
+test("database health and organization operations reject requests without a verified bearer session", async () => {
+  const server = createDatabaseServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const { port } = server.address();
+  try {
+    for (const [path, method] of [
+      ["/health/db", "GET"],
+      ["/sync/replay", "POST"],
+      ["/sync/reconcile", "POST"],
+    ]) {
+      const response = await fetch(`http://127.0.0.1:${port}${path}`, { method });
+      assert.equal(response.status, 403, `${method} ${path} must fail closed`);
+      assert.deepEqual(await response.json(), { error: "Verified platform administrator access required" });
+    }
+  } finally {
+    await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+});

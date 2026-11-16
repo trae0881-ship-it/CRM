@@ -1,0 +1,107 @@
+:root {
+  --adometa-brand: #5144e5;
+  --adometa-brand-hover: #4336d5;
+  --adometa-brand-soft: #f0efff;
+  --adometa-ink: #11152d;
+  --adometa-muted: #69728a;
+  --adometa-border: #e7e9f2;
+  --adometa-surface: #ffffff;
+  --adometa-canvas: #f8fafc;
+  --adometa-success: #16a878;
+  --adometa-auth-background: #0f172a;
+  --adometa-auth-card: #0f172a;
+  --adometa-auth-border: #1e293b;
+  --adometa-auth-input: #0f172a;
+  --adometa-auth-input-border: #334155;
+  --adometa-auth-primary: #4f46e5;
+  --adometa-auth-link: #a5b4fc;
+  --adometa-radius-control: 9px;
+  --adometa-radius-card: 15px;
+  --adometa-space-1: 4px;
+  --adometa-space-2: 8px;
+  --adometa-space-3: 12px;
+  --adometa-space-4: 16px;
+  --adometa-space-6: 24px;
+  --ink: var(--adometa-ink);
+  --muted: var(--adometa-muted);
+  --line: var(--adometa-border);
+  --purple: var(--adometa-brand);
+  --pale: var(--adometa-brand-soft);
+  --green: var(--adometa-success);
+  color: var(--adometa-ink);
+  background-color: var(--adometa-canvas);
+}
+
+.card,
+.stat-card {
+  border-color: var(--adometa-border);
+  border-radius: var(--adometa-radius-card);
+  background-color: var(--adometa-surface);
+}
+
+.button,
+.icon-button {
+  border-radius: var(--adometa-radius-control);
+}
+
+@media (max-width: 760px) {
+  .public-menu-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 44px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: var(--adometa-radius-control);
+  }
+
+  .public-menu-button:hover {
+    color: var(--adometa-brand);
+    background: var(--adometa-brand-soft);
+  }
+
+  .public-nav {
+    max-height: calc(100dvh - 68px);
+    overflow-y: auto;
+  }
+
+  .organization-settings-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.organization-settings-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--adometa-space-4);
+}
+
+.organization-settings-form label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--adometa-space-2);
+}
+
+.organization-settings-form input,
+.organization-settings-form textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--adometa-border);
+  border-radius: var(--adometa-radius-control);
+  padding: 10px 12px;
+  color: var(--adometa-ink);
+  background: var(--adometa-surface);
+}
+
+.organization-settings-form textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.organization-settings-form .button,
+.organization-settings-form [role="alert"] {
+  grid-column: 1 / -1;
+}

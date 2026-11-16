@@ -28,7 +28,16 @@ Deno.serve(async (request) => {
   const maxUsers = Array.isArray(subscription?.subscription_plans) ? subscription?.subscription_plans[0]?.max_users : subscription?.subscription_plans?.max_users;
   const { count: activeUsers } = await admin.from("organization_members").select("user_id", { count: "exact", head: true }).eq("organization_id", body.organizationId).eq("is_active", true);
   if (maxUsers !== null && maxUsers !== undefined && (activeUsers ?? 0) >= Number(maxUsers)) return json({ error: "Subscription user limit reached" }, 409);
-  const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(body.email, { data: { organization_id: body.organizationId, role: body.role } });
+  const inviteOptions: { data: { organization_id: string; role: string }; redirectTo?: string } = {
+    data: { organization_id: body.organizationId, role: body.role },
+  };
+  const { data: domainConfig, error: domainConfigError } = await admin.rpc("get_public_platform_domain_config");
+  if (domainConfigError) {
+    console.warn("Canonical invitation redirect unavailable; using the Supabase Site URL.");
+  } else if (typeof domainConfig?.canonicalHostname === "string" && domainConfig.canonicalHostname) {
+    inviteOptions.redirectTo = `https://${domainConfig.canonicalHostname}/`;
+  }
+  const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(body.email, inviteOptions);
   if (inviteError || !invited.user) return json({ error: inviteError?.message || "Invitation failed" }, 400);
   const { error: profileError } = await admin.from("profiles").upsert({ id: invited.user.id, full_name: body.email });
   if (profileError) return json({ error: profileError.message }, 500);

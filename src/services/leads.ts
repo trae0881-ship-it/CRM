@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { buildLeadSearchFilter } from "../lib/leadSearch.mjs";
 import type { LeadEvent, LeadRecord, LeadStatus } from "../types/database";
 
 export type CreateLeadInput = Pick<LeadRecord, "full_name"> & Partial<Omit<LeadRecord, "id" | "organization_id" | "created_at" | "updated_at" | "external_id">>;
@@ -11,7 +12,7 @@ const requireClient = () => {
 export async function listLeads(search = ""): Promise<LeadRecord[]> {
   const client = requireClient();
   let query = client.from("leads").select("*").is("deleted_at", null).order("created_at", { ascending: false });
-  if (search.trim()) query = query.or(`full_name.ilike.%${search.trim()}%,email.ilike.%${search.trim()}%,phone.ilike.%${search.trim()}%`);
+  if (search.trim()) query = query.or(buildLeadSearchFilter(search));
   const { data, error } = await query;
   if (error) throw error;
   return (data ?? []) as LeadRecord[];

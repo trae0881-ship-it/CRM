@@ -2,21 +2,22 @@
 
 ## Reference observations
 
-The supplied Hostinger site uses Plus Jakarta Sans, a light slate background, dark navy authentication surfaces, vivid indigo/purple primary actions, lavender feature surfaces, thin low-contrast borders, and generous rounded corners. Its public workspace preview uses compact KPI cards, a simple pipeline view, short activity lists, and high-contrast hierarchy. On mobile, the header collapses to a compact navigation treatment and content stacks without horizontal overflow.
+The supplied Adometa Hostinger site uses Plus Jakarta Sans, a light slate background, dark navy authentication surfaces, indigo primary actions, lavender feature surfaces, thin borders, and rounded cards. The supplied NeoDove page uses a white/black high-contrast shell, Poppins typography, and yellow primary calls to action. Adometa's existing deployed brand is preserved: use its indigo and slate tokens, while following NeoDove's compact CRM hierarchy and direct-action emphasis rather than mixing unrelated brand colors.
 
 ## CRM application rules
 
 - Use `Plus Jakarta Sans` for all product UI.
-- Use `#5144e5` as the primary action and active navigation color.
+- Use `--adometa-brand` (`#5144e5`) as the primary action and active navigation color.
 - Use navy (`#0d152b`) for secure authentication surfaces.
-- Use `#f8fafc` and subtle lavender gradients for application backgrounds.
-- Use 10–16px radius cards, 1px `#e7e9f2` borders, and restrained shadows.
+- Use `--adometa-canvas` (`#f8fafc`) and `--adometa-brand-soft` for application backgrounds.
+- Use the `--adometa-*` design tokens for color, spacing, and radii; avoid new unrelated accent palettes.
+- Use 10–16px radius cards, 1px `--adometa-border` borders, and restrained shadows.
 - Keep labels compact, uppercase, and letter-spaced; use bold headlines with tight tracking.
 - Keep primary actions visible at the end of page headers and full-width on mobile.
-- Collapse the sidebar below 720px and preserve touch targets of at least 34px.
+- Collapse navigation for mobile and use at least 44px touch targets for primary navigation controls.
 - Use horizontally scrollable tables only where tabular information cannot become cards.
 - Never use static metrics for configured Supabase environments. Pending integration states must be explicit.
 
 ## Applied surfaces
 
-The specification is applied to the existing shell, authentication screen, dashboard, lead table, campaigns, follow-ups, module placeholders, and Meta Lead Ads integration screen. Backend services, RLS, and webhook code remain unchanged.
+The existing shell and public authentication surfaces use the shared color aliases; the public mobile navigation has an explicit 44px hit area, expanded state, and Escape-key close behavior. Organization settings and activity are backed by tenant-scoped Supabase records and RLS. Authenticated screens still require real staging accounts for full visual and role-based verification.

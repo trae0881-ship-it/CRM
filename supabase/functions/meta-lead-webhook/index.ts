@@ -6,7 +6,9 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 async function fetchMetaLead(leadId: string, token: string) {
   const fields = "id,created_time,field_data,ad_id,ad_name,form_id,campaign_id,campaign_name";
-  const response = await fetch(`https://graph.facebook.com/${META_API_VERSION}/${encodeURIComponent(leadId)}?fields=${fields}&access_token=${encodeURIComponent(token)}`);
+  const response = await fetch(`https://graph.facebook.com/${META_API_VERSION}/${encodeURIComponent(leadId)}?fields=${fields}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
   const payload = await response.json();
   if (!response.ok || payload.error) throw new Error(payload.error?.message || "Meta lead lookup failed");
   return payload;

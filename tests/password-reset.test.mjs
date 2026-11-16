@@ -3,10 +3,13 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const auth = await readFile(new URL("../src/services/auth.ts", import.meta.url), "utf8");
+const appUrls = await readFile(new URL("../src/lib/appUrls.ts", import.meta.url), "utf8");
 const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
 
 test("password reset uses the deployed app URL", () => {
-  assert.match(auth, /window\.location\.origin/);
+  assert.match(auth, /redirectTo:\s*await getAppUrl\("\/reset-password"\)/);
+  assert.match(appUrls, /window\.location\.origin/);
+  assert.match(appUrls, /getCanonicalOrigin/);
   assert.match(auth, /resetPasswordForEmail/);
   assert.match(auth, /\/reset-password/);
 });

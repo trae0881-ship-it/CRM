@@ -5,7 +5,9 @@ export type Membership = { organization_id: string; user_id: string; role: UserR
 export type Team = { id: string; name: string; manager_id: string | null; is_active: boolean; created_at: string };
 export type OrganizationMember = { organization_id: string; user_id: string; role: UserRole; is_active: boolean; profiles: { full_name: string } | null };
 export type OrganizationProfile = { id: string; name: string; slug: string; is_active: boolean; created_at: string };
-export type WorkspaceSummary = { organizationName: string; employees: number; teams: number; leads: number; bookings: number; calls: number };
+export type OrganizationSettings = { organization_id: string; contact_email: string | null; contact_phone: string | null; address: string | null; time_zone: string; updated_at: string };
+export type OrganizationAuditEntry = { id: string; action: string; entity_type: string; created_at: string; metadata: Record<string, unknown> };
+export type WorkspaceSummary = { organizationName: string; organizationIsActive: boolean; employees: number; teams: number; leads: number; bookings: number; calls: number };
 export type PersonalPerformance = { assignedLeads: number; newLeads: number; contactedLeads: number; calls: number; followUpsDue: number; followUpsCompleted: number; visitsScheduled: number; visitsCompleted: number; bookings: number; lostLeads: number };
 
 const requireClient = () => {
@@ -34,10 +36,60 @@ export async function updateOrganizationProfile(organizationId: string, name: st
   return data as OrganizationProfile;
 }
 
+export async function getOrganizationSettings(organizationId: string): Promise<OrganizationSettings | null> {
+  const { data, error } = await requireClient()
+    .from("organization_settings")
+    .select("organization_id,contact_email,contact_phone,address,time_zone,updated_at")
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as OrganizationSettings | null;
+}
+
+export async function saveOrganizationSettings(
+  organizationId: string,
+  settings: Pick<OrganizationSettings, "contact_email" | "contact_phone" | "address" | "time_zone">,
+): Promise<void> {
+  const contactEmail = settings.contact_email?.trim() || null;
+  if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+    throw new Error("Enter a valid contact email address.");
+  }
+  if ((settings.contact_phone?.trim().length ?? 0) > 32) throw new Error("Contact phone must be 32 characters or fewer.");
+  if ((settings.address?.trim().length ?? 0) > 500) throw new Error("Address must be 500 characters or fewer.");
+  const timeZone = settings.time_zone.trim();
+  if (!timeZone || timeZone.length > 64) throw new Error("Enter a valid time zone.");
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone });
+  } catch {
+    throw new Error("Enter a valid IANA time zone.");
+  }
+
+  const { error } = await requireClient().from("organization_settings").upsert({
+    organization_id: organizationId,
+    contact_email: contactEmail,
+    contact_phone: settings.contact_phone?.trim() || null,
+    address: settings.address?.trim() || null,
+    time_zone: timeZone,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "organization_id" });
+  if (error) throw error;
+}
+
+export async function listOrganizationAudit(organizationId: string): Promise<OrganizationAuditEntry[]> {
+  const { data, error } = await requireClient()
+    .from("audit_logs")
+    .select("id,action,entity_type,created_at,metadata")
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return (data ?? []) as OrganizationAuditEntry[];
+}
+
 export async function getWorkspaceSummary(organizationId: string): Promise<WorkspaceSummary> {
   const client = requireClient();
   const [organization, employees, teams, leads, bookings, calls] = await Promise.all([
-    client.from("organizations").select("name").eq("id", organizationId).single(),
+    client.from("organizations").select("name,is_active").eq("id", organizationId).single(),
     client.from("organization_members").select("user_id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("is_active", true),
     client.from("teams").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).eq("is_active", true),
     client.from("leads").select("id", { count: "exact", head: true }).eq("organization_id", organizationId).is("deleted_at", null),
@@ -49,6 +101,7 @@ export async function getWorkspaceSummary(organizationId: string): Promise<Works
   if (!organization.data) throw new Error("Organization record was not found.");
   return {
     organizationName: organization.data.name,
+    organizationIsActive: organization.data.is_active,
     employees: employees.count ?? 0,
     teams: teams.count ?? 0,
     leads: leads.count ?? 0,
@@ -61,6 +114,21 @@ export async function listTeams(organizationId: string): Promise<Team[]> {
   const { data, error } = await requireClient().from("teams").select("id,name,manager_id,is_active,created_at").eq("organization_id", organizationId).order("created_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as Team[];
+}
+
+export async function listUserTeamNames(organizationId: string, userId: string): Promise<string[]> {
+  const client = requireClient();
+  const { data, error } = await client
+    .from("team_members")
+    .select("team_id")
+    .eq("organization_id", organizationId)
+    .eq("user_id", userId);
+  if (error) throw error;
+  const teamIds = (data ?? []).map((row) => String(row.team_id));
+  if (!teamIds.length) return [];
+  const { data: teams, error: teamsError } = await client.from("teams").select("id,name").eq("organization_id", organizationId).eq("is_active", true).in("id", teamIds);
+  if (teamsError) throw teamsError;
+  return (teams ?? []).map((team) => String(team.name));
 }
 
 export async function createTeam(organizationId: string, name: string): Promise<Team> {

@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /login
+Disallow: /signup
+Disallow: /reset-password
+Disallow: /dashboard
+Disallow: /super-admin/
+Disallow: /saas/admin/
+Disallow: /admin/docs
+Disallow: /docs

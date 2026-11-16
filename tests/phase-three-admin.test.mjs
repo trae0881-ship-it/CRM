@@ -7,6 +7,7 @@ const corrections = await readFile(new URL("../supabase/migrations/202611020011_
 const bootstrap = await readFile(new URL("../supabase/migrations/202611020017_super_admin_bootstrap.sql", import.meta.url), "utf8");
 const bootstrapFunction = await readFile(new URL("../supabase/functions/bootstrap-super-admin/index.ts", import.meta.url), "utf8");
 const organizationHardening = await readFile(new URL("../supabase/migrations/202611020018_organization_admin_hardening.sql", import.meta.url), "utf8");
+const platformBilling = await readFile(new URL("../supabase/migrations/202611020020_platform_billing_management.sql", import.meta.url), "utf8");
 
 test("platform migration limits support access and audits platform actions", () => {
   assert.match(migration, /platform_support_grants/);
@@ -59,4 +60,21 @@ test("organization administration is RPC-authorized and protects tenant privileg
   assert.match(organizationHardening, /validate_team_manager/);
   assert.match(organizationHardening, /assign_team_manager/);
   assert.match(organizationHardening, /same organization/);
+});
+
+test("platform and organization admin boundaries are enforced by backend RPCs", () => {
+  const organizationMemberUpdate = organizationHardening.slice(
+    organizationHardening.indexOf("create or replace function public.update_organization_member"),
+    organizationHardening.indexOf("create or replace function public.update_organization_profile"),
+  );
+  const platformMemberUpdate = bootstrap.slice(
+    bootstrap.indexOf("create or replace function public.platform_update_membership"),
+  );
+  assert.match(organizationMemberUpdate, /actor_role not in \('company_owner','organization_admin'\)/);
+  assert.match(organizationMemberUpdate, /target_role = 'super_admin'/);
+  assert.match(organizationMemberUpdate, /actor_role = 'organization_admin' and target_role = 'company_owner'/);
+  assert.match(platformMemberUpdate, /public\.is_platform_admin\(\)/);
+  assert.match(platformMemberUpdate, /target_role = 'super_admin'/);
+  assert.match(platformBilling, /if not public\.is_platform_admin\(\) then raise exception 'Platform administrator permission required'/);
+  assert.match(platformBilling, /revoke all on function public\.platform_upsert_subscription/);
 });

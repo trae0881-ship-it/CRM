@@ -1,5 +1,9 @@
 # Database plan
 
+Supabase PostgreSQL/Auth remains the primary transactional database. A server-side Node/MySQL replica and transactional Supabase outbox are implemented in source; MySQL deployment and live database synchronization remain **BLOCKED** until credentials are configured and migration 025 is reviewed/applied to staging. See [the dual database architecture](./DATABASE_DUAL_ARCHITECTURE.md), [MySQL setup](./MYSQL_SETUP.md), and [mysql/README.md](../mysql/README.md).
+
+MySQL mirrors approved source rows into namespaced `crm_mirror_*` JSON snapshot tables. It preserves canonical UUIDs, organization IDs, timestamps, deleted-row tombstones, and source row fields in the payload, but does not yet reproduce all PostgreSQL types or enforce the full relational foreign-key schema. It is not a second writeable CRM or a standalone relational source of truth.
+
 All organization-owned tables include `organization_id`, timestamps, and soft-delete fields where appropriate. Foreign keys are scoped and indexes begin with `organization_id` to support tenant isolation and reporting.
 
 Core tables: `organizations`, `profiles`, `organization_members`, `teams`, `team_members`, `invitations`, `leads`, `lead_activities`, `calls`, `follow_up_tasks`, `site_visits`, `bookings`, `campaigns`, `sales_targets`, `subscription_plans`, `subscriptions`, `invoices`, `payments`, `meta_integrations`, `meta_forms`, `webhook_events`, and `audit_logs`. Phase 2 also adds `lead_statuses`, `notifications`, `telephony_provider_configs`, and `provider_webhook_events`.
@@ -49,3 +53,5 @@ The review found overlapping lead timeline triggers in the prepared Phase 3 migr
 - Migration 018 adds organization settings, server-authorized membership/profile operations, self-change and privilege-escalation guards, subscription seat-limit checks and audit events. It must be applied before enabling organization administration in staging.
 - Migration 019 adds organization-scoped Google Sheets OAuth state, encrypted-token metadata, source-row mapping and sync history tables. It also hardens pipeline movement by role and assignment/team scope. OAuth tokens are not readable through frontend queries.
 - Migration 021 adds organization-scoped payment idempotency, payment state history and pending QR/manual review records. Receipts remain pending until an authorized review; they never activate a subscription automatically.
+- Migration 025 (not applied by this repository task) adds a transactionally written, secret-filtering CRM outbox with service-role-only ordered claim/ack/failure/replay/health RPCs for the MySQL worker. Apply only after confirming the staging project and remote migration history.
+- The new MySQL migration creates only namespaced replica tables and sync metadata. It does not truncate existing data. The real MySQL test suite skips unless an explicit disposable `MYSQL_TEST_DATABASE` equals `MYSQL_DATABASE`; passing source tests does not establish a live connection.

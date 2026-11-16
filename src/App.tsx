@@ -1,20 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight, BarChart3, Bell, CalendarDays, Check, ChevronDown, CircleHelp,
   ClipboardList, Clock3, Filter, LayoutDashboard, Menu, MoreHorizontal, Phone,
-  Plus, Search, Settings, Target, TrendingUp, Users, X, Zap, Headphones,
+  Plus, Search, Settings, Target, TrendingUp, Users, X, Zap, Headphones, LogOut,
   UsersRound, PieChart, Plug, ShieldCheck,
-  Building2, UserPlus, CreditCard, Wrench, Bot,
+  Building2, UserPlus, CreditCard, Wrench, Bot, Database, Globe2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { isSupabaseConfigured, supabase } from "./lib/supabase";
+import { isSupabaseConfigured, supabase, supabaseConfigError } from "./lib/supabase";
 import { createLead, getLeadByExternalId, listLeadTimeline, listOrganizationSalespeople, listLeads, shareLead, transferLead, updateLeadStatus } from "./services/leads";
 import { saveCall, skipLead } from "./services/calling";
 import { personalWhatsAppUrl, recordWhatsAppOpened, renderWhatsAppTemplate } from "./services/whatsapp";
 import { requestPasswordReset, signIn, signOut, signUp, updatePassword } from "./services/auth";
 import type { LeadEvent, LeadRecord, LeadStatus } from "./types/database";
 import type { Session } from "@supabase/supabase-js";
-import { createTeam, getCurrentMembership, getPersonalPerformance, getWorkspaceSummary, inviteMember, listTeams } from "./services/workspace";
+import { createTeam, getCurrentMembership, getPersonalPerformance, getWorkspaceSummary, inviteMember, listTeams, listUserTeamNames } from "./services/workspace";
 import type { Membership, PersonalPerformance, Team, WorkspaceSummary } from "./services/workspace";
 import { DashboardLayout } from "./components/DashboardLayout";
 import { PublicLayout } from "./components/PublicLayout";
@@ -28,8 +28,15 @@ import { GrowthToolsView, LicenseRegisterView } from "./components/GrowthToolsVi
 import { AutomationView } from "./components/AutomationView";
 import { Customer360View, SalesPipelineView } from "./components/SalesOperationsView";
 import { listNotifications } from "./services/operations";
+import { ProfileMenu } from "./components/ProfileMenu";
+import { OrganizationAdminControls } from "./components/OrganizationAdminControls";
+import { DocumentationCenter } from "./components/DocumentationCenter";
+import { canAccessDocumentation, getDocumentationCenter, getDocumentationRedirectPath } from "./lib/documentationAccess";
+import { DatabaseMonitoringView } from "./components/DatabaseMonitoringView";
+import { applyRouteMetadata, getAppUrl, redirectToCanonicalDomain } from "./lib/appUrls";
+import { DomainLinksView, DomainManagementView } from "./components/DomainManagementView";
 
-type View = "Overview" | "Leads" | "Campaigns" | "Follow-ups" | "Calling" | "Teams" | "Reports" | "Integrations" | "Company" | "Site Visits" | "Bookings" | "Notifications" | "Statuses" | "Platform" | "Payment Gateway" | "Growth Tools" | "License Register" | "Automation" | "Sales Pipeline" | "Customer 360";
+type View = "Overview" | "Leads" | "Campaigns" | "Follow-ups" | "Calling" | "Teams" | "Reports" | "Integrations" | "Company" | "Site Visits" | "Bookings" | "Notifications" | "Statuses" | "Platform" | "Payment Gateway" | "Growth Tools" | "License Register" | "Database Monitoring" | "Automation" | "Sales Pipeline" | "Customer 360";
 type Status = "New" | "Contacted" | "Qualified" | "Follow-up" | "Won";
 type Lead = { id: string; dbId?: string; phone?: string | null; name: string; company: string; source: string; status: Status; score: number; owner: string; date: string; color: string };
 
@@ -52,10 +59,13 @@ const navItems: { label: View; icon: typeof LayoutDashboard }[] = [
   { label: "Teams", icon: UsersRound },
 ];
 
+const domainAdminPaths = new Set(["/saas/admin/domains", "/saas/admin/domains/links"]);
+const isDomainAdminPath = (path: string) => domainAdminPaths.has(path);
+
 function App() {
   const [session, setSession] = useState<Session | null | undefined>(isSupabaseConfigured ? undefined : null);
   const [view, setView] = useState<View>("Overview");
-  const [leads, setLeads] = useState(initialLeads);
+  const [leads, setLeads] = useState<Lead[]>(isSupabaseConfigured ? [] : initialLeads);
   const [query, setQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showLeadForm, setShowLeadForm] = useState(false);
@@ -69,19 +79,117 @@ function App() {
   const [performance, setPerformance] = useState<PersonalPerformance | null>(null);
   const [operationLeads, setOperationLeads] = useState<LeadRecord[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [membershipLoaded, setMembershipLoaded] = useState(false);
+  const [membershipError, setMembershipError] = useState("");
+  const [membershipRefresh, setMembershipRefresh] = useState(0);
+  const [teamNames, setTeamNames] = useState<string[]>([]);
+  const authUserId = useRef<string | null>(null);
+  const logoutInProgress = useRef(false);
+
+  useEffect(() => {
+    void redirectToCanonicalDomain().catch(() => {
+      console.warn("Canonical domain redirect could not be checked.");
+    });
+  }, []);
+
+  useEffect(() => {
+    void applyRouteMetadata(window.location.pathname, Boolean(session))
+      .catch(() => console.warn("Page metadata could not be updated."));
+  }, [session]);
+
+  useEffect(() => {
+    const path = window.location.pathname;
+    if (!isDomainAdminPath(path) || session === undefined) return;
+    if (!session) {
+      window.location.replace("/super-admin/login");
+      return;
+    }
+    if (!membershipLoaded) return;
+    if (membership?.role !== "super_admin" || !membership.is_active) {
+      window.location.replace(membership?.is_active ? "/dashboard" : "/login");
+    }
+  }, [session, membershipLoaded, membership]);
+
+  const clearWorkspaceState = useCallback(() => {
+    setMembership(null);
+    setWorkspaceSummary(null);
+    setTeams([]);
+    setSelectedLead(null);
+    setTimeline([]);
+    setSalespeople([]);
+    setPerformance(null);
+    setOperationLeads([]);
+    setUnreadNotifications(0);
+    setLeads(isSupabaseConfigured ? [] : initialLeads);
+    setTeamNames([]);
+    setMembershipError("");
+    setQuery("");
+    setView("Overview");
+    setSidebarOpen(false);
+    setShowLeadForm(false);
+  }, []);
 
   useEffect(() => {
     if (!supabase) return;
     let active = true;
-    void supabase.auth.getSession().then(({ data }) => { if (active) setSession(data.session); });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
+      if (error) {
+        authUserId.current = null;
+        clearWorkspaceState();
+        setSession(null);
+        setMembershipLoaded(true);
+        setMembershipError("Your secure session could not be restored. Please sign in again.");
+        const loginPath = window.location.pathname.startsWith("/super-admin") ? "/super-admin/login" : "/login";
+        window.history.replaceState({}, "", `${loginPath}?reason=session-expired`);
+        return;
+      }
+      authUserId.current = data.session?.user.id ?? null;
+      setSession(data.session);
+      if (!data.session && ["/dashboard", "/super-admin/dashboard"].includes(window.location.pathname)) {
+        window.history.replaceState({}, "", window.location.pathname.startsWith("/super-admin") ? "/super-admin/login" : "/login");
+      }
+    }).catch(() => {
+      if (!active) return;
+      authUserId.current = null;
+      clearWorkspaceState();
+      setSession(null);
+      setMembershipLoaded(true);
+      setMembershipError("Your secure session could not be restored. Please sign in again.");
+      const loginPath = window.location.pathname.startsWith("/super-admin") ? "/super-admin/login" : "/login";
+      window.history.replaceState({}, "", `${loginPath}?reason=session-expired`);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      const previousUserId = authUserId.current;
+      const nextUserId = nextSession?.user.id ?? null;
+      authUserId.current = nextUserId;
+      if (previousUserId !== nextUserId) {
+        clearWorkspaceState();
+        setMembershipLoaded(!nextUserId);
+      }
+      setSession(nextSession);
+      if (previousUserId && !nextUserId) {
+        const loginPath = window.location.pathname.startsWith("/super-admin") ? "/super-admin/login" : "/login";
+        const reason = logoutInProgress.current ? "" : "?reason=session-expired";
+        window.history.replaceState({}, "", `${loginPath}${reason}`);
+      }
+    });
     return () => { active = false; listener.subscription.unsubscribe(); };
-  }, []);
+  }, [clearWorkspaceState]);
 
   useEffect(() => {
-    if (!supabase || !session) return;
-    void getCurrentMembership().then((current) => {
+    if (!supabase || !session) {
+      setMembership(null);
+      setMembershipLoaded(true);
+      return;
+    }
+    let active = true;
+    setMembershipLoaded(false);
+    setMembershipError("");
+    void getCurrentMembership().then(async (current) => {
+      if (!active) return;
       setMembership(current);
+      setMembershipLoaded(true);
       if (!current) return;
       const path = window.location.pathname;
       if (current.role === "super_admin") {
@@ -91,24 +199,66 @@ function App() {
         window.history.replaceState({}, "", "/dashboard");
         setView("Overview");
       }
-      if (current.role === "agent") void getPersonalPerformance(current.organization_id, current.user_id).then(setPerformance).catch((error: Error) => notify(error.message));
-      return Promise.all([getWorkspaceSummary(current.organization_id), listTeams(current.organization_id)]).then(([summary, currentTeams]) => {
+      if (getDocumentationCenter(path) || isDomainAdminPath(path)) return;
+      try {
+        const [summary, currentTeams, currentSalespeople, currentTeamNames] = await Promise.all([
+          getWorkspaceSummary(current.organization_id),
+          listTeams(current.organization_id),
+          listOrganizationSalespeople(current.organization_id),
+          listUserTeamNames(current.organization_id, current.user_id),
+        ]);
+        if (!active) return;
         setWorkspaceSummary(summary);
         setTeams(currentTeams);
-        return listOrganizationSalespeople(current.organization_id).then(setSalespeople);
-      });
-    }).catch((error: Error) => notify(error.message));
-  }, [session]);
+        setSalespeople(currentSalespeople);
+        setTeamNames(currentTeamNames);
+        if (current.role === "agent") {
+          const currentPerformance = await getPersonalPerformance(current.organization_id, current.user_id);
+          if (active) setPerformance(currentPerformance);
+        }
+      } catch (error) {
+        if (active) notify(error instanceof Error ? error.message : "Workspace data could not be loaded.");
+      }
+    }).catch((error: Error) => {
+      if (!active) return;
+      setMembership(null);
+      setMembershipLoaded(true);
+      setMembershipError(error.message || "Organization access could not be verified.");
+    });
+    return () => { active = false; };
+  }, [session?.user.id, membershipRefresh]);
 
   useEffect(() => {
-    if (!supabase || !session) return;
-    void listNotifications().then((items) => setUnreadNotifications(items.filter((item) => !item.read_at).length)).catch(() => undefined);
-  }, [session, view]);
+    const path = window.location.pathname;
+    if (!getDocumentationCenter(path) || session === undefined) return;
+    if (!session) {
+      window.location.replace("/login");
+      return;
+    }
+    if (!membershipLoaded) return;
+    const redirectPath = getDocumentationRedirectPath(path, membership);
+    if (redirectPath) window.location.replace(redirectPath);
+  }, [session, membershipLoaded, membership]);
 
   useEffect(() => {
-    if (!supabase) return;
-    void listLeads(query).then((records) => { setOperationLeads(records); setLeads(records.map(toUiLead)); }).catch((error: Error) => notify(error.message));
-  }, [query]);
+    if (!supabase || !session || !membership || getDocumentationCenter(window.location.pathname) || isDomainAdminPath(window.location.pathname)) return;
+    let active = true;
+    void listNotifications()
+      .then((items) => { if (active) setUnreadNotifications(items.filter((item) => !item.read_at).length); })
+      .catch((error: Error) => { if (active) notify(error.message || "Notifications could not be loaded."); });
+    return () => { active = false; };
+  }, [session?.user.id, membership?.organization_id, view]);
+
+  useEffect(() => {
+    if (!supabase || !session || !membership || getDocumentationCenter(window.location.pathname) || isDomainAdminPath(window.location.pathname)) return;
+    let active = true;
+    void listLeads(query).then((records) => {
+      if (!active) return;
+      setOperationLeads(records);
+      setLeads(records.map(toUiLead));
+    }).catch((error: Error) => { if (active) notify(error.message || "Leads could not be loaded."); });
+    return () => { active = false; };
+  }, [query, session?.user.id, membership?.organization_id]);
 
   const filteredLeads = useMemo(() => leads.filter((lead) =>
     `${lead.name} ${lead.company} ${lead.id} ${lead.source}`.toLowerCase().includes(query.toLowerCase()),
@@ -140,16 +290,67 @@ function App() {
     notify("Lead created successfully");
   };
 
+  const handleLogout = async () => {
+    if (!window.confirm("Sign out of Adometa CRM?")) return;
+    logoutInProgress.current = true;
+    try {
+      await signOut();
+      const loginPath = membership?.role === "super_admin" || window.location.pathname.startsWith("/super-admin")
+        ? "/super-admin/login"
+        : "/login";
+      authUserId.current = null;
+      clearWorkspaceState();
+      setMembershipLoaded(true);
+      setSession(null);
+      window.history.replaceState({}, "", loginPath);
+    } catch (error) {
+      notify(error instanceof Error ? `Sign out failed: ${error.message}` : "Sign out failed. Please try again.");
+      throw error;
+    } finally {
+      logoutInProgress.current = false;
+    }
+  };
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSidebarOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [sidebarOpen]);
+
+  if (supabaseConfigError) return <section className="auth-page"><div className="modal auth-card"><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">APPLICATION CONFIGURATION</p><h1>Workspace unavailable</h1><p className="muted" role="alert">{supabaseConfigError}</p><p className="muted">Configure the frontend settings in the deployment environment, then reload this page. No demo records are shown.</p></div></section>;
   if (window.location.pathname === "/reset-password") return <PublicLayout><ResetPasswordScreen /></PublicLayout>;
   if (isSupabaseConfigured && session === undefined) return <div className="public-loading"><div className="muted">Loading secure workspace...</div></div>;
+  const documentationCenter = getDocumentationCenter(window.location.pathname);
+  if (documentationCenter) {
+    if (!session || !membershipLoaded || !membership || !canAccessDocumentation(window.location.pathname, membership)) {
+      return <div className="public-loading"><div className="muted">Verifying documentation access...</div></div>;
+    }
+    return <DocumentationCenter centerId={documentationCenter} membership={membership} />;
+  }
+  if (isDomainAdminPath(window.location.pathname)) {
+    if (!session || !membershipLoaded || !membership || membership.role !== "super_admin" || !membership.is_active) {
+      return <div className="public-loading"><div className="muted">Verifying platform administrator access...</div></div>;
+    }
+    return window.location.pathname === "/saas/admin/domains/links"
+      ? <DomainLinksView />
+      : <DomainManagementView onOpenLinks={() => window.location.assign("/saas/admin/domains/links")} />;
+  }
   if (!session) return <PublicRoute session={session}><PublicLayout><PublicPage path={window.location.pathname} /></PublicLayout></PublicRoute>;
+  if (isSupabaseConfigured && !membershipLoaded) return <div className="public-loading"><div className="muted">Verifying organization access...</div></div>;
+  if (isSupabaseConfigured && (!membership || membershipError)) return <section className="auth-page"><div className="modal auth-card"><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">WORKSPACE ACCESS</p><h1>{membershipError ? "Access could not be verified" : "No active organization"}</h1><p className="muted">{membershipError || "Your account does not have an active organization membership. Contact your organization administrator."}</p>{membershipError && <button className="button secondary auth-submit" onClick={() => setMembershipRefresh((value) => value + 1)}>Try again</button>}<button className="button primary auth-submit" onClick={() => void handleLogout().catch(() => undefined)}>Sign out</button></div></section>;
   return <ProtectedRoute session={session ?? null} allowAnonymous={!isSupabaseConfigured}><DashboardLayout>{(
     <div className="app-shell">
-      <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
-        <div className="brand"><div className="brand-mark">A</div><span>adometa</span><button className="close-menu" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
-        <div className="workspace-switcher"><div className="workspace-avatar">AS</div><div><strong>Acme Sales</strong><small>Workspace</small></div><ChevronDown size={16} /></div>
+      {sidebarOpen && <button className="sidebar-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
+      <aside id="workspace-navigation" className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`} onClick={(event) => {
+        if (event.target instanceof Element && event.target.closest(".nav-item")) setSidebarOpen(false);
+      }}>
+        <div className="brand"><div className="brand-mark">A</div><span>adometa</span><button className="close-menu" aria-label="Close navigation" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
+        <div className="workspace-switcher"><div className="workspace-avatar">{workspaceSummary?.organizationName?.slice(0, 2).toUpperCase() || "OR"}</div><div><strong>{workspaceSummary?.organizationName || "Organization"}</strong><small>Workspace</small></div><ChevronDown size={16} /></div>
         <p className="nav-heading">WORKSPACE</p>
-        {membership?.role === "super_admin" && <nav><button className={`nav-item ${view === "Platform" ? "active" : ""}`} onClick={() => setView("Platform")}><ShieldCheck size={18} /><span>Platform administration</span></button><button className={`nav-item ${view === "Payment Gateway" ? "active" : ""}`} onClick={() => setView("Payment Gateway")}><CreditCard size={18} /><span>Payment Gateway</span></button><button className={`nav-item ${view === "Growth Tools" ? "active" : ""}`} onClick={() => setView("Growth Tools")}><Wrench size={18} /><span>Growth Tools</span></button><button className={`nav-item ${view === "License Register" ? "active" : ""}`} onClick={() => setView("License Register")}><ShieldCheck size={18} /><span>License register</span></button></nav>}
+        {membership?.role === "super_admin" && <nav><button className={`nav-item ${view === "Platform" ? "active" : ""}`} onClick={() => setView("Platform")}><ShieldCheck size={18} /><span>Platform administration</span></button><a className="nav-item" href="/saas/admin/domains"><Globe2 size={18} /><span>Domain management</span></a><button className={`nav-item ${view === "Payment Gateway" ? "active" : ""}`} onClick={() => setView("Payment Gateway")}><CreditCard size={18} /><span>Payment Gateway</span></button><button className={`nav-item ${view === "Growth Tools" ? "active" : ""}`} onClick={() => setView("Growth Tools")}><Wrench size={18} /><span>Growth Tools</span></button><button className={`nav-item ${view === "License Register" ? "active" : ""}`} onClick={() => setView("License Register")}><ShieldCheck size={18} /><span>License register</span></button><button className={`nav-item ${view === "Database Monitoring" ? "active" : ""}`} onClick={() => setView("Database Monitoring")}><Database size={18} /><span>Database monitoring</span></button></nav>}
         <nav>{navItems.filter(({ label }) => membership?.role !== "super_admin" && (label !== "Teams" || membership?.role === "company_owner" || membership?.role === "organization_admin" || membership?.role === "manager")).map(({ label, icon: Icon }) => <button key={label} className={view === label ? "nav-item active" : "nav-item"} onClick={() => { setView(label); setSidebarOpen(false); }}><Icon size={18} /><span>{label}</span>{label === "Leads" && <em>{isSupabaseConfigured ? leads.length : "Demo"}</em>}</button>)}</nav>
         <p className="nav-heading">MANAGE</p>
         <nav>
@@ -160,21 +361,27 @@ function App() {
           {(membership?.role === "company_owner" || membership?.role === "organization_admin") && <button className={`nav-item ${view === "Statuses" ? "active" : ""}`} onClick={() => setView("Statuses")}><Settings size={18} /><span>Lead statuses</span></button>}
           {(membership?.role === "company_owner" || membership?.role === "organization_admin" || membership?.role === "manager") && <button className={`nav-item ${view === "Automation" ? "active" : ""}`} onClick={() => setView("Automation")}><Bot size={18} /><span>Automation</span></button>}
           {membership && <><button className={`nav-item ${view === "Sales Pipeline" ? "active" : ""}`} onClick={() => setView("Sales Pipeline")}><Target size={18} /><span>Sales pipeline</span></button><button className={`nav-item ${view === "Customer 360" ? "active" : ""}`} onClick={() => setView("Customer 360")}><Users size={18} /><span>Customer 360</span></button></>}
-          <button className="nav-item" onClick={() => notify("Organization settings are pending configuration")}><Settings size={18} /><span>Settings</span></button>
+          {(membership?.role === "company_owner" || membership?.role === "organization_admin") && <button className={`nav-item ${view === "Company" ? "active" : ""}`} onClick={() => setView("Company")}><Settings size={18} /><span>Organization settings</span></button>}
         </nav>
-        <div className="sidebar-bottom"><div className="upgrade-card"><Zap size={17} /><strong>Make more happen</strong><p>Unlock advanced analytics and automation.</p><button onClick={() => notify("Upgrade request noted")}>Explore plans <ArrowUpRight size={14} /></button></div><div className="profile"><div className="profile-avatar">AS</div><div><strong>{isSupabaseConfigured ? "Signed-in user" : "Arjun Shah"}</strong><small>{isSupabaseConfigured ? "Workspace member" : "Admin"}</small></div><button className="icon-button" onClick={() => { if (supabase) void signOut(); }} aria-label="Sign out"><MoreHorizontal size={18} /></button></div></div>
+        <p className="nav-heading">HELP</p>
+        <nav>
+          <a className="nav-item documentation-workspace-link" href={membership?.role === "super_admin" ? "/saas/admin/docs" : membership?.role === "company_owner" || membership?.role === "organization_admin" ? "/admin/docs" : "/docs"}><CircleHelp size={18} /><span>{membership?.role === "super_admin" ? "Platform guide" : membership?.role === "company_owner" || membership?.role === "organization_admin" ? "Admin guide" : "Help center"}</span></a>
+        </nav>
+        <button className="nav-item mobile-signout" onClick={() => void handleLogout().catch(() => undefined)}><LogOut size={18} /><span>Sign out</span></button>
+        <div className="sidebar-bottom"><div className="upgrade-card"><Zap size={17} /><strong>Make more happen</strong><p>Unlock advanced analytics and automation.</p><button onClick={() => notify("Upgrade request noted")}>Explore plans <ArrowUpRight size={14} /></button></div></div>
       </aside>
       <main className="main-content">
-        <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>{view}</strong></div><div className="topbar-actions"><div className="global-search"><Search size={17} /><input placeholder="Search anything..." value={query} onChange={(e) => setQuery(e.target.value)} /><kbd>⌘ K</kbd></div><button className="icon-button" aria-label="Help"><CircleHelp size={19} /></button><button className="icon-button notification" aria-label={`Notifications${unreadNotifications ? ` (${unreadNotifications} unread)` : ""}`} onClick={() => setView("Notifications")}><Bell size={19} />{unreadNotifications > 0 && <span className="notification-count">{unreadNotifications}</span>}</button></div></header>
+        <header className="topbar"><button className="mobile-menu" aria-label="Open navigation" aria-expanded={sidebarOpen} aria-controls="workspace-navigation" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>{view}</strong></div><div className="topbar-actions"><div className="global-search"><Search size={17} /><input placeholder="Search anything..." value={query} onChange={(e) => setQuery(e.target.value)} /><kbd>⌘ K</kbd></div><a className="icon-button" aria-label="Help center" title="Help center" href={membership?.role === "super_admin" ? "/saas/admin/docs" : membership?.role === "company_owner" || membership?.role === "organization_admin" ? "/admin/docs" : "/docs"}><CircleHelp size={19} /></a><button className="icon-button notification" aria-label={`Notifications${unreadNotifications ? ` (${unreadNotifications} unread)` : ""}`} onClick={() => setView("Notifications")}><Bell size={19} />{unreadNotifications > 0 && <span className="notification-count">{unreadNotifications}</span>}</button>{membership && <ProfileMenu session={session} membership={membership} organizationName={workspaceSummary?.organizationName || ""} organizationIsActive={workspaceSummary?.organizationIsActive ?? null} teamNames={teamNames} onLogout={handleLogout} />}</div></header>
         <div className="page-content">
           {view === "Platform" && membership && <PlatformAdminView membership={membership} onNotify={notify} />}
+          {view === "Database Monitoring" && membership && <DatabaseMonitoringView membership={membership} session={session ?? null} onNotify={notify} />}
           {view === "Payment Gateway" && membership && <PaymentGatewayView membership={membership} onNotify={notify} />}
           {view === "Growth Tools" && membership && <GrowthToolsView membership={membership} />}
           {view === "License Register" && membership && <LicenseRegisterView membership={membership} />}
           {view === "Automation" && membership && <AutomationView membership={membership} onNotify={notify} />}
           {view === "Sales Pipeline" && membership && <SalesPipelineView membership={membership} onNotify={notify} />}
           {view === "Customer 360" && membership && <Customer360View membership={membership} onNotify={notify} />}
-          {view === "Overview" && <Overview leads={leads} performance={performance} onAdd={() => setShowLeadForm(true)} onViewLeads={() => setView("Leads")} />}
+          {view === "Overview" && <Overview leads={leads} performance={performance} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => setView("Leads")} />}
           {view === "Leads" && <LeadsView leads={filteredLeads} query={query} onAdd={() => setShowLeadForm(true)} onOpen={async (externalId) => { if (!supabase) return; try { const record = await getLeadByExternalId(externalId); setSelectedLead(record); setTimeline(await listLeadTimeline(record.id)); } catch (error) { notify(error instanceof Error ? error.message : "Could not open lead"); } }} onStatusChange={async (id, status) => { try { if (supabase) await updateLeadStatus(id, status.toLowerCase().replace("-", "_") as LeadStatus); setLeads((all) => all.map((lead) => lead.id === id ? { ...lead, status } : lead)); notify("Lead status updated"); } catch (error) { notify(error instanceof Error ? error.message : "Could not update lead"); } }} />}
           {view === "Campaigns" && (isSupabaseConfigured ? <ModulePending eyebrow="CAMPAIGN MANAGEMENT" title="Campaigns" description="Campaign records will appear here after the campaign repository is connected." icon={<Target size={24} />} /> : <Campaigns onNotify={notify} />)}
           {view === "Follow-ups" && (membership ? <FollowUpsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FOLLOW-UP QUEUE" title="Follow-ups" description="An authenticated organization membership is required." icon={<ClipboardList size={24} />} />)}
@@ -182,7 +389,7 @@ function App() {
           {view === "Site Visits" && (membership ? <SiteVisitsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FIELD WORK" title="Site visits" description="An authenticated organization membership is required." icon={<CalendarDays size={24} />} />)}
           {view === "Bookings" && (membership ? <BookingsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="REVENUE" title="Bookings" description="An authenticated organization membership is required." icon={<Target size={24} />} />)}
           {view === "Teams" && (membership?.role === "company_owner" || membership?.role === "organization_admin" || membership?.role === "manager" ? <TeamsView membership={membership} teams={teams} onCreated={(team) => setTeams((current) => [team, ...current])} onNotify={notify} /> : <ModulePending eyebrow="TEAM MANAGEMENT" title="Teams & roles" description="Your current role does not have access to team management." icon={<UsersRound size={24} />} />)}
-          {view === "Company" && membership && <CompanyAdminView membership={membership} onNotify={notify} />}
+          {view === "Company" && membership && <><CompanyAdminView membership={membership} onNotify={notify} /><OrganizationAdminControls organizationId={membership.organization_id} onNotify={notify} /></>}
           {view === "Reports" && (membership ? <ReportsView membership={membership} onNotify={notify} /> : <ModulePending eyebrow="ANALYTICS" title="Reports & analytics" description="An authenticated organization membership is required." icon={<PieChart size={24} />} />)}
           {view === "Notifications" && (membership ? <NotificationsView membership={membership} onNotify={notify} /> : <ModulePending eyebrow="ACTIVITY CENTER" title="Notifications" description="An authenticated organization membership is required." icon={<Bell size={24} />} />)}
           {view === "Statuses" && (membership?.role === "company_owner" || membership?.role === "organization_admin" ? <StatusSettingsView membership={membership} onNotify={notify} /> : <ModulePending eyebrow="WORKSPACE SETTINGS" title="Lead statuses" description="Only company owners and organization admins can manage statuses." icon={<Settings size={24} />} />)}
@@ -239,7 +446,7 @@ function SuperAdminLoginScreen() {
   const [mode, setMode] = useState<"login" | "reset">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(() => new URLSearchParams(window.location.search).get("reason") === "session-expired" ? "Your session expired. Sign in again to continue." : "");
   const [busy, setBusy] = useState(false);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -256,7 +463,7 @@ function SuperAdminLoginScreen() {
           await signOut();
           throw new Error("This account is not authorized for Super Admin access.");
         }
-        window.location.assign("/super-admin/dashboard");
+        window.location.assign(await getAppUrl("/super-admin/dashboard"));
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Super Admin authentication failed");
@@ -269,7 +476,7 @@ function LoginScreen() {
   const [mode, setMode] = useState<"login" | "reset">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(() => new URLSearchParams(window.location.search).get("reason") === "session-expired" ? "Your session expired. Sign in again to continue." : "");
   const [busy, setBusy] = useState(false);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -312,7 +519,7 @@ function ResetPasswordScreen() {
   return <form className="modal auth-card" onSubmit={submit}><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">PASSWORD RESET</p><h1>Choose a new password</h1><p className="muted">Use a strong password for your secure workspace.</p><label>New password<input required minLength={8} type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{message && <p className="auth-message">{message}</p>}<button className="button primary auth-submit" disabled={busy}>{busy ? "Saving..." : "Update password"}</button><a className="text-button auth-toggle" href="/login">Back to sign in</a></form>;
 }
 
-function Overview({ leads, performance, onAdd, onViewLeads }: { leads: Lead[]; performance: PersonalPerformance | null; onAdd: () => void; onViewLeads: () => void }) {
+function Overview({ leads, performance, onAdd, onViewLeads, userName }: { leads: Lead[]; performance: PersonalPerformance | null; onAdd: () => void; onViewLeads: () => void; userName: string }) {
   const count = (status: Status) => leads.filter((lead) => lead.status === status).length;
   const conversionRate = leads.length ? `${Math.round((count("Won") / leads.length) * 100)}%` : "0%";
   const pipeline = [["New", count("New"), "purple"], ["Contacted", count("Contacted"), "blue"], ["Qualified", count("Qualified"), "green"], ["Follow-up", count("Follow-up"), "orange"], ["Won", count("Won"), "dark"]] as const;
@@ -323,7 +530,7 @@ function Overview({ leads, performance, onAdd, onViewLeads }: { leads: Lead[]; p
     { label: "Conversion rate", value: conversionRate, change: "Current", Icon: Target, note: "won / total" },
   ];
   const exportCsv = () => { const rows = [["Lead ID", "Name", "Company", "Source", "Status", "Score"], ...leads.map((lead) => [lead.id, lead.name, lead.company, lead.source, lead.status, String(lead.score)])]; const csv = rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = "adometa-authorized-leads.csv"; link.click(); URL.revokeObjectURL(link.href); };
-  return <><PageHeader eyebrow="LIVE WORKSPACE" title="Good morning, Arjun" description="Here’s what’s happening with your sales pipeline today." action={<div className="page-actions"><button className="button secondary" onClick={exportCsv}>Export CSV</button><button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} />{performance && <section className="card personal-performance"><div className="card-header"><div><h2>My performance</h2><p>Authorized records for your salesperson account</p></div><span className="pending-pill">Live data</span></div><div className="performance-grid">{[["Assigned leads", performance.assignedLeads], ["Calls made", performance.calls], ["Follow-ups due", performance.followUpsDue], ["Visits completed", performance.visitsCompleted], ["Bookings", performance.bookings], ["Lost leads", performance.lostLeads]].map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div></section>}<div className="stats-grid">{stats.map(({ label, value, change, Icon, note }) => <div className="stat-card" key={label}><div className="stat-top"><span>{label}</span><div className="stat-icon"><Icon size={17} /></div></div><strong>{value}</strong><div className="stat-foot"><span className="neutral">{change}</span><small>{note}</small></div></div>)}</div><div className="dashboard-grid"><section className="card pipeline-card"><div className="card-header"><div><h2>Pipeline overview</h2><p>Lead progression across your sales stages</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><div className="funnel">{pipeline.map(([stage, stageCount, color]) => { const percent = leads.length ? Math.round((stageCount / leads.length) * 100) : 0; return <div className="funnel-row" key={stage}><span className="funnel-label">{stage}</span><div className="funnel-track"><div className={`funnel-bar ${color}`} style={{ width: `${percent}%` }} /></div><strong>{stageCount}</strong><small>{percent}%</small></div>; })}</div></section><section className="card activity-card"><div className="card-header"><div><h2>Recent leads</h2><p>Latest authorized records</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><div className="activity-list">{leads.slice(0, 4).map((lead) => <div className="activity-item" key={lead.id}><div className="activity-avatar green">{lead.name.split(" ").map((part) => part[0]).join("")}</div><div><p><strong>{lead.name}</strong> entered as {lead.status}</p><small>{lead.date}</small></div></div>)}</div></section></div><section className="card table-card"><div className="card-header"><div><h2>Recent leads</h2><p>Leads that need your attention</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><LeadTable leads={leads.slice(0, 4)} compact /></section></>;
+  return <><PageHeader eyebrow="LIVE WORKSPACE" title={`Good morning, ${userName || "there"}`} description="Here’s what’s happening with your sales pipeline today." action={<div className="page-actions"><button className="button secondary" onClick={exportCsv}>Export CSV</button><button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} />{performance && <section className="card personal-performance"><div className="card-header"><div><h2>My performance</h2><p>Authorized records for your salesperson account</p></div><span className="pending-pill">Live data</span></div><div className="performance-grid">{[["Assigned leads", performance.assignedLeads], ["Calls made", performance.calls], ["Follow-ups due", performance.followUpsDue], ["Visits completed", performance.visitsCompleted], ["Bookings", performance.bookings], ["Lost leads", performance.lostLeads]].map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div></section>}<div className="stats-grid">{stats.map(({ label, value, change, Icon, note }) => <div className="stat-card" key={label}><div className="stat-top"><span>{label}</span><div className="stat-icon"><Icon size={17} /></div></div><strong>{value}</strong><div className="stat-foot"><span className="neutral">{change}</span><small>{note}</small></div></div>)}</div><div className="dashboard-grid"><section className="card pipeline-card"><div className="card-header"><div><h2>Pipeline overview</h2><p>Lead progression across your sales stages</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><div className="funnel">{pipeline.map(([stage, stageCount, color]) => { const percent = leads.length ? Math.round((stageCount / leads.length) * 100) : 0; return <div className="funnel-row" key={stage}><span className="funnel-label">{stage}</span><div className="funnel-track"><div className={`funnel-bar ${color}`} style={{ width: `${percent}%` }} /></div><strong>{stageCount}</strong><small>{percent}%</small></div>; })}</div></section><section className="card activity-card"><div className="card-header"><div><h2>Recent leads</h2><p>Latest authorized records</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><div className="activity-list">{leads.slice(0, 4).map((lead) => <div className="activity-item" key={lead.id}><div className="activity-avatar green">{lead.name.split(" ").map((part) => part[0]).join("")}</div><div><p><strong>{lead.name}</strong> entered as {lead.status}</p><small>{lead.date}</small></div></div>)}</div></section></div><section className="card table-card"><div className="card-header"><div><h2>Recent leads</h2><p>Leads that need your attention</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><LeadTable leads={leads.slice(0, 4)} compact /></section></>;
 }
 
 function LeadsView({ leads, query, onAdd, onOpen, onStatusChange }: { leads: Lead[]; query: string; onAdd: () => void; onOpen: (id: string) => void; onStatusChange: (id: string, status: Status) => void }) {
