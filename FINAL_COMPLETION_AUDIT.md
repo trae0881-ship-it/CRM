@@ -22,7 +22,7 @@ Audit date: 2026-11-02
 | Follow-ups, site visits and bookings | COMPLETE AND LOCALLY VERIFIED | Services, validation helpers, migrations and local tests |
 | Reports and exports | COMPLETE AND LOCALLY VERIFIED | CSV, controlled OOXML XLSX and PDF utilities; authorization requires live RLS verification |
 | Super Admin and company administration | COMPLETE AND LOCALLY VERIFIED | Platform/company views and restricted metadata operations |
-| YouPI-PG payment adapter | INTEGRATION FOUNDATION ONLY | Server functions, ledger, signature verification and reconciliation gating; credentials and gateway deployment absent |
+| Payment-provider checkout | NOT IMPLEMENTED | Provider-specific functions and configuration removed; generic payment history retained |
 | Open SEO | WAITING FOR DEPLOYMENT | Isolated-service register only; no service deployment or health check |
 | Open SEO Crawler | WAITING FOR DEPLOYMENT | Isolated crawler required with SSRF and resource controls |
 | Google Maps Scraper Kit | WAITING FOR DEPLOYMENT | Isolated worker and legal/source review required |
@@ -73,7 +73,6 @@ No feature is marked live or independently verified.
 | Local automated suite | COMPLETE AND LOCALLY VERIFIED | 28 tests passed; lint, build and high-severity audit passed |
 | Supabase authentication | WAITING FOR DEPLOYMENT | No configured staging project or authenticated test accounts |
 | Two-organization RLS | WAITING FOR DEPLOYMENT | Direct database/RPC checks not run |
-| YouPI-PG sandbox | WAITING FOR CREDENTIALS | No merchant sandbox credentials or deployed Edge Functions |
 | External integrations | WAITING FOR CREDENTIALS | No live provider credentials or service deployments |
 | Backup and recovery | WAITING FOR DEPLOYMENT | No backup or restore evidence available |
 
@@ -83,7 +82,7 @@ No feature is marked live or independently verified.
 |---|---|---|
 | One-time Super Admin bootstrap | INTEGRATION FOUNDATION ONLY | Migration 017 RPC and server-only Edge Function; staging deployment and secret setup pending |
 | Super Admin login route | COMPLETE AND LOCALLY VERIFIED | `/super-admin/login` verifies membership after Supabase Auth sign-in |
-| Platform dashboard | COMPLETE AND LOCALLY VERIFIED | Existing platform metrics, company, billing, gateway, audit and user access views |
+| Platform dashboard | COMPLETE AND LOCALLY VERIFIED | Existing platform metrics, company, billing, audit and user access views |
 | Last Super Admin protection | INTEGRATION FOUNDATION ONLY | Migration 017 RPC; live RLS/RPC execution pending |
 
 ## Phase 9 completion
@@ -93,7 +92,6 @@ No feature is marked live or independently verified.
 | Persisted pipeline movement | INTEGRATION FOUNDATION ONLY | Drag/drop UI now calls the authorized optimistic-concurrency RPC; staging migration and RLS execution pending |
 | Customer 360 | INTEGRATION FOUNDATION ONLY | Current view is tenant-scoped lead search; related calls, messages, visits, bookings, payments and documents require database-backed profile joins |
 | Campaigns, targets and commissions | INTEGRATION FOUNDATION ONLY | Additive schema and deterministic calculations exist; server-authoritative live records and approvals require staging |
-| YouPI-PG | WAITING FOR CREDENTIALS | Existing signed webhook and reconciliation foundation; no merchant sandbox credentials |
 | Growth Tools | WAITING FOR DEPLOYMENT | Isolated control plane only; no service deployments or health checks |
 | WhatsApp and telephony | WAITING FOR CREDENTIALS | Provider-neutral/manual foundations; official provider credentials and webhook contracts absent |
 | Authentication and cross-tenant RLS | WAITING FOR DEPLOYMENT | No staging project or test identities |

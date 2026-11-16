@@ -10,9 +10,12 @@ const envExample = await readFile(new URL("../.env.example", import.meta.url), "
 const envDocs = await readFile(new URL("../ENVIRONMENT_VARIABLES.md", import.meta.url), "utf8");
 const gitignore = await readFile(new URL("../.gitignore", import.meta.url), "utf8");
 const functionNames = await readdir(new URL("../supabase/functions/", import.meta.url), { withFileTypes: true });
-const functionSources = await Promise.all(functionNames.filter((entry) => entry.isDirectory()).map((entry) =>
-  readFile(new URL(`../supabase/functions/${entry.name}/index.ts`, import.meta.url), "utf8"),
-));
+const functionSources = (await Promise.all(functionNames.filter((entry) => entry.isDirectory()).map(async (entry) => {
+  const files = await readdir(new URL(`../supabase/functions/${entry.name}/`, import.meta.url));
+  return files.includes("index.ts")
+    ? readFile(new URL(`../supabase/functions/${entry.name}/index.ts`, import.meta.url), "utf8")
+    : null;
+}))).filter(Boolean);
 
 test("all source-referenced environment variables are inventoried and templated", () => {
   const source = [supabaseClient, ...functionSources].join("\n");
@@ -26,7 +29,7 @@ test("all source-referenced environment variables are inventoried and templated"
   }
   assert.match(gitignore, /^\.env\.\*$/m);
   assert.match(gitignore, /^!\.env\.example$/m);
-  assert.doesNotMatch(envExample, /META_APP_ID|YOUPI_TEST_MODE/);
+  assert.doesNotMatch(envExample, /META_APP_ID/);
 });
 
 test("missing Supabase settings fail closed without printing values or showing demo data", () => {

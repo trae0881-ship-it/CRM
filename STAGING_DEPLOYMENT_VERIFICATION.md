@@ -86,12 +86,12 @@ Migration 019 restricts movement to Company Owner/Organization Admin, permitted 
 | RLS and tenant isolation | BLOCKED | No authenticated staging organizations |
 | Authentication and role permissions | BLOCKED | No staging accounts |
 | Google Sheets integration | BLOCKED | No Google credentials or real sync |
-| YouPI sandbox integration | BLOCKED | Credentials and provider contract unavailable |
+| Payment-provider checkout | NOT IMPLEMENTED | No provider adapter or webhook endpoint is retained |
 | QR payment integration | BLOCKED | No verified dynamic QR contract; manual receipts remain pending |
 | Billing/subscription verification | BLOCKED | No live database/payment records |
 | Edge Function/browser logs | BLOCKED | No deployed staging functions/log access |
 
-Payment local status is **COMPLETE AND LOCALLY VERIFIED** for fail-closed configuration, idempotency, webhook replay/amount guards, UPI reconciliation gating and pending manual-review schema. It is not live payment verification.
+Payment-provider status is **NOT IMPLEMENTED**. Generic payment history and manual review schemas remain; no live payment processing is available.
 
 ## Regression results
 
@@ -119,7 +119,7 @@ order by version;
 7. Create the nine staging identities and two organizations listed above.
 8. Run the cross-tenant, billing, pipeline, Google OAuth and Storage tests.
 9. Run Supabase database/security advisors and inspect Edge Function logs.
-10. Configure YouPI only in staging with `YOUPI_ENABLED=false`, execute the scenarios in `BILLING_TEST_REPORT.md`, and enable it only after provider contract, signature and QR behavior are independently verified.
+10. Apply and verify the payment-retirement migration in staging; confirm historical transactions and review records remain readable and provider endpoints are unavailable.
 11. Record actual SQL/API responses and update this report before any production decision.
 
 ## Production recommendation

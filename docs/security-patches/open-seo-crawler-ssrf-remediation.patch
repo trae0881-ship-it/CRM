@@ -1,0 +1,263 @@
+diff --git a/app.py b/app.py
+index 2ebac88..235ae47 100644
+--- a/app.py
++++ b/app.py
+@@ -17,6 +17,10 @@ Features:
+ """
+ from flask import Flask, render_template, request, Response, stream_with_context, jsonify, send_file
+ import requests
++import http.client
++import ipaddress
++import socket
++import ssl
+ import json
+ import os
+ import re as _re
+@@ -3198,9 +3202,107 @@ def _norm_url(u):
+         return u.rstrip('/').lower()
+ 
+ 
++def _public_ip(value):
++    try:
++        address = ipaddress.ip_address(value.split('%', 1)[0])
++    except ValueError as exc:
++        raise ValueError('invalid destination address') from exc
++    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
++        address = address.ipv4_mapped
++    if not address.is_global:
++        raise ValueError('private or reserved destination is not allowed')
++    return address
++
++
++def _resolve_public_ip(hostname, port):
++    try:
++        literal = ipaddress.ip_address(hostname.split('%', 1)[0])
++    except ValueError:
++        records = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
++        addresses = [_public_ip(record[4][0]) for record in records]
++    else:
++        addresses = [_public_ip(str(literal))]
++    if not addresses:
++        raise ValueError('destination did not resolve')
++    return str(addresses[0])
++
++
++def _verify_peer(sock, expected_ip):
++    actual = _public_ip(sock.getpeername()[0])
++    if actual != ipaddress.ip_address(expected_ip):
++        raise OSError('connected peer did not match the validated destination')
++
++
++class _PinnedHTTPConnection(http.client.HTTPConnection):
++    def __init__(self, hostname, port, address, timeout):
++        super().__init__(address, port, timeout=timeout)
++        self._expected_ip = address
++
++    def connect(self):
++        super().connect()
++        _verify_peer(self.sock, self._expected_ip)
++
++
++class _PinnedHTTPSConnection(http.client.HTTPSConnection):
++    def __init__(self, hostname, port, address, timeout):
++        super().__init__(hostname, port, timeout=timeout, context=ssl.create_default_context())
++        self._expected_ip = address
++
++    def connect(self):
++        sock = socket.create_connection((self._expected_ip, self.port), self.timeout)
++        try:
++            self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
++            _verify_peer(self.sock, self._expected_ip)
++        except Exception:
++            sock.close()
++            raise
++
++
++def _fetch_public_text(url, max_redirects=5, max_bytes=20000):
++    for redirect_count in range(max_redirects + 1):
++        parsed = urlparse(url)
++        if parsed.scheme not in ('http', 'https') or not parsed.hostname:
++            raise ValueError('only HTTP and HTTPS destinations are allowed')
++        if parsed.username is not None or parsed.password is not None:
++            raise ValueError('destination credentials are not allowed')
++        port = parsed.port or (443 if parsed.scheme == 'https' else 80)
++        address = _resolve_public_ip(parsed.hostname, port)
++        connection_type = _PinnedHTTPSConnection if parsed.scheme == 'https' else _PinnedHTTPConnection
++        connection = connection_type(parsed.hostname, port, address, timeout=10)
++        request_target = parsed.path or '/'
++        if parsed.query:
++            request_target += '?' + parsed.query
++        host_header = '[{}]'.format(parsed.hostname) if ':' in parsed.hostname else parsed.hostname
++        if port != (443 if parsed.scheme == 'https' else 80):
++            host_header += ':{}'.format(port)
++        try:
++            connection.request('GET', request_target, headers={
++                'Host': host_header,
++                'User-Agent': 'Mozilla/5.0 (compatible; OpenSEOCrawler-RobotsPreview)',
++                'Accept': 'text/plain,*/*;q=0.8',
++                'Connection': 'close',
++            })
++            response = connection.getresponse()
++            location = response.getheader('Location')
++            if response.status in (301, 302, 303, 307, 308) and location:
++                response.read(1)
++                if redirect_count >= max_redirects:
++                    raise ValueError('too many redirects')
++                url = urljoin(url, location)
++                continue
++            body = response.read(max_bytes + 1)
++            content = body[:max_bytes].decode('utf-8', errors='replace')
++            content_length = response.getheader('Content-Length')
++            length = int(content_length) if content_length and content_length.isdigit() else len(body)
++            return response.status, content, length
++        finally:
++            connection.close()
++    raise ValueError('too many redirects')
++
++
+ @app.route('/fetch-robots-txt', methods=['GET'])
+ def fetch_robots_txt():
+-    """Fetch a site's robots.txt for the URL filters preview panel."""
++    """Fetch robots.txt only from public HTTP(S) hosts and validated redirects."""
+     target = (request.args.get('url') or '').strip()
+     if not target:
+         return jsonify({'error': 'url required'}), 400
+@@ -3208,21 +3310,18 @@ def fetch_robots_txt():
+         target = 'https://' + target.lstrip('/')
+     try:
+         parsed = urlparse(target)
+-        if not parsed.netloc:
++        if not parsed.hostname:
+             return jsonify({'error': 'invalid URL'}), 400
+-        robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+-        resp = _http_get(robots_url, timeout=10,
+-                            headers={'User-Agent': 'Mozilla/5.0 (compatible; OpenSEOCrawler-RobotsPreview)'},
+-                            allow_redirects=True)
+-        body = (resp.text or '')[:20000]
++        robots_url = '{}://{}/robots.txt'.format(parsed.scheme, parsed.netloc)
++        status, content, length = _fetch_public_text(robots_url)
+         return jsonify({
+             'url': robots_url,
+-            'status': resp.status_code,
+-            'content': body,
+-            'length': len(resp.text or ''),
++            'status': status,
++            'content': content,
++            'length': length,
+         })
+-    except Exception as e:
+-        return jsonify({'error': str(e)[:200]}), 200
++    except (OSError, ValueError, requests.RequestException) as e:
++        return jsonify({'error': str(e)[:200]}), 502
+ 
+ 
+ def _bare_host(url):
+@@ -5844,5 +5943,5 @@ def export_crawl_sitemap():
+ 
+ 
+ if __name__ == "__main__":
+-    app.run(host="0.0.0.0", port=5002, debug=False, threaded=True)
++    app.run(host="127.0.0.1", port=5002, debug=False, threaded=True)
+ 
+diff --git a/tests/test_agent_e2e.py b/tests/test_agent_e2e.py
+index 096620d..f712784 100644
+--- a/tests/test_agent_e2e.py
++++ b/tests/test_agent_e2e.py
+@@ -63,6 +63,22 @@ crawler._CRAWL_FOLDER = TMP
+ crawler._CRAWL_FOLDERS_RO = []
+ crawler._CRAWL_TITLE_HISTORY_PATH = os.path.join(TMP, 'crawl-titles.jsonl')
+ 
++# Keep the local robots fixture deterministic without weakening the app's
++# production SSRF checks for loopback destinations.
++_fetch_public_text = crawler._fetch_public_text
++
++
++def _fetch_fixture_robots(url, **kwargs):
++    parsed = crawler.urlparse(url)
++    if (parsed.scheme == 'http' and parsed.hostname == '127.0.0.1'
++            and parsed.port == SITE_PORT and parsed.path == '/robots.txt'):
++        content = 'User-agent: CCBot\nDisallow: /private/\n'
++        return 200, content[:kwargs.get('max_bytes', 20000)], len(content)
++    return _fetch_public_text(url, **kwargs)
++
++
++crawler._fetch_public_text = _fetch_fixture_robots
++
+ CRAWL_PORT = free_port()
+ threading.Thread(target=lambda: crawler.app.run(host='127.0.0.1', port=CRAWL_PORT, debug=False, threaded=True),
+                  daemon=True).start()
+diff --git a/tests/test_ssrf_protection.py b/tests/test_ssrf_protection.py
+new file mode 100644
+index 0000000..7acf813
+--- /dev/null
++++ b/tests/test_ssrf_protection.py
+@@ -0,0 +1,69 @@
++import ipaddress
++
++import pytest
++
++import app as crawler
++
++
++def test_private_and_reserved_addresses_are_rejected():
++    for address in ("127.0.0.1", "10.0.0.1", "169.254.169.254", "::1", "fd00::1"):
++        with pytest.raises(ValueError):
++            crawler._public_ip(address)
++
++
++def test_public_address_is_accepted():
++    assert crawler._public_ip("8.8.8.8") == ipaddress.ip_address("8.8.8.8")
++
++
++def test_redirect_target_is_resolved_and_rejected_before_connection(monkeypatch):
++    connected_hosts = []
++
++    class RedirectResponse:
++        status = 302
++
++        def getheader(self, name):
++            return "http://127.0.0.1/admin" if name.lower() == "location" else None
++
++        def read(self, size):
++            return b""
++
++    class FakeConnection:
++        def __init__(self, hostname, port, address, timeout):
++            connected_hosts.append(hostname)
++
++        def request(self, *args, **kwargs):
++            pass
++
++        def getresponse(self):
++            return RedirectResponse()
++
++        def close(self):
++            pass
++
++    monkeypatch.setattr(crawler, "_PinnedHTTPConnection", FakeConnection)
++    monkeypatch.setattr(crawler, "_resolve_public_ip", lambda host, port: "93.184.216.34" if host == "public.example" else crawler._public_ip(host))
++
++    with pytest.raises(ValueError, match="private or reserved"):
++        crawler._fetch_public_text("http://public.example/robots.txt")
++    assert connected_hosts == ["public.example"]
++
++
++def test_private_ip_literal_is_rejected_without_dns(monkeypatch):
++    monkeypatch.setattr(crawler.socket, "getaddrinfo", lambda *args, **kwargs: pytest.fail("literal IP must not be resolved"))
++    with pytest.raises(ValueError, match="private or reserved"):
++        crawler._resolve_public_ip("127.0.0.1", 80)
++
++
++def test_connected_peer_must_match_pinned_address():
++    class FakeSocket:
++        def getpeername(self):
++            return ("1.1.1.1", 80)
++
++    with pytest.raises(OSError, match="peer did not match"):
++        crawler._verify_peer(FakeSocket(), "8.8.8.8")
++
++
++def test_robots_endpoint_rejects_private_targets():
++    response = crawler.app.test_client().get("/fetch-robots-txt?url=http://127.0.0.1/admin")
++    assert response.status_code == 502
++    assert "private or reserved" in response.get_json()["error"]

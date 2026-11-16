@@ -11,7 +11,6 @@ export type PlatformSubscription = { organization_id: string; plan_id: string; s
 export type PlatformStats = { companies: number; activeCompanies: number; trialCompanies: number; suspendedCompanies: number; users: number; organizationAdmins: number; superAdmins: number; activeSubscriptions: number; expiredSubscriptions: number; recurringRevenue: number };
 export type PlatformAudit = { id: string; organization_id: string | null; action: string; entity_type: string; created_at: string; metadata: Record<string, unknown> };
 export type PlatformMember = { organization_id: string; user_id: string; role: string; is_active: boolean; organizations: { name: string } | null; profiles: { full_name: string } | null };
-export type PaymentGatewayOverview = { provider: string; enabled: boolean; test_mode: boolean; merchant_id: string | null; connection_status: string; total_attempts: number; reconciled_payments: number; awaiting_reconciliation: number; manual_review_payments: number; failed_payments: number; expired_payments: number; reconciled_amount: number; last_successful_webhook: string | null; last_webhook_error: string | null };
 
 export async function getPlatformStats(): Promise<PlatformStats> {
   const { data, error } = await client().rpc("platform_dashboard_stats");
@@ -94,12 +93,6 @@ export async function listPlatformAudit() {
 export async function auditPlatformAction(organizationId: string | null, action: string, entityType: string, entityId: string | null, metadata: Record<string, unknown> = {}) {
   const { error } = await client().rpc("audit_platform_action", { target_org: organizationId, action_name: action, target_entity: entityType, target_id: entityId, action_metadata: metadata });
   if (error) throw error;
-}
-
-export async function getPaymentGatewayOverview(): Promise<PaymentGatewayOverview> {
-  const { data, error } = await client().rpc("payment_gateway_overview");
-  if (error) throw error;
-  return data as PaymentGatewayOverview;
 }
 
 export async function listPlatformMembers(): Promise<PlatformMember[]> {

@@ -15,8 +15,10 @@ test("platform billing management is server-authorized and payment-neutral", asy
 test("license register exposes version and commit pinning fields", async () => {
   const source = await readFile(new URL("../src/services/growthTools.ts", import.meta.url), "utf8");
   const view = await readFile(new URL("../src/components/GrowthToolsView.tsx", import.meta.url), "utf8");
-  assert.match(source, /pinnedVersion/);
-  assert.match(source, /pinnedCommit/);
+  assert.match(source, /version: "/);
+  assert.equal((source.match(/commit: "[a-f0-9]{40}"/g) || []).length, 5);
   assert.match(view, /PINNED VERSION/);
   assert.match(view, /PINNED COMMIT/);
+  assert.match(view, /LAST VERIFIED/);
+  assert.match(view, /HEALTH/);
 });

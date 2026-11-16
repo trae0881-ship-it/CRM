@@ -1,29 +1,19 @@
-# Payment security audit
+# Payment security status
 
-## Gate status
+## Current gate
 
-**BLOCKED.** Supabase staging credentials, YouPI sandbox credentials and current provider documentation are unavailable. No payment migration was applied.
+No payment-provider checkout, provider configuration, or webhook integration is currently implemented. This is a removal decision, not a claim that a payment provider passed integration testing.
 
-## Locally verified
+## Preserved controls and records
 
-- Credentials are read from Edge Function environment variables, not frontend code.
-- Service-role and provider secrets are not placed in `VITE_` variables.
-- Checkout amount comes from an active database plan.
-- Organization membership is checked server-side.
-- Payment orders require an idempotency key.
-- Webhook signatures use the raw request body and constant-time comparison.
-- Webhook delivery IDs are unique and replay-safe.
-- Amount and currency mismatches are rejected.
-- Only verified UPI reconciliation activates a subscription.
-- Payment state transitions are recorded.
-- QR/manual receipts remain pending and cannot auto-approve payment.
+- Subscription and plan administration remain separate from payment collection.
+- Generic payment transactions, webhook-delivery history, payment-state history, and QR-review records are retained.
+- Payment records remain subject to the existing row-level security policies.
+- Manual receipt uploads do not automatically confirm settlement.
 
-## Not verified
+## Migration and deployment limitations
 
-- Provider signature compatibility.
-- Sandbox checkout and status APIs.
-- Dynamic QR creation and expiry.
-- Refund contract and behavior.
-- Edge Function secret configuration.
-- Browser console, logs and database security advisor output.
-- Two-organization payment and Storage isolation.
+- The forward migration removes the provider-specific configuration table and overview function and generalizes provider identifiers without deleting transaction history.
+- The migration has not been applied or tested against a staging database.
+- Any already-deployed Supabase Edge Functions must be removed from the project separately; deleting local function source does not undeploy a remote function.
+- Live RLS, backup/restore, and billing workflows remain unverified.

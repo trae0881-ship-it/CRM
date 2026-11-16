@@ -34,7 +34,7 @@ The following were skipped because the required environment was unavailable:
 - Two-organization direct-query and RPC RLS tests.
 - Lead, customer, call, follow-up, visit, booking, payment, campaign, ticket, import and notification isolation.
 - Supabase Edge Function authorization and webhook delivery tests.
-- YouPI-PG sandbox checkout, webhook, replay and reconciliation tests.
+- Payment-retirement migration and generic payment-history preservation tests.
 - Meta, WhatsApp and telephony provider tests.
 - Growth Tool health checks and worker tests.
 - Backup restore and point-in-time recovery verification.

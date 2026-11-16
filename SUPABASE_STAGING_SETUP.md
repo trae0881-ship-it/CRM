@@ -39,16 +39,7 @@ Deploy only after migration history has been checked and the function source has
 - `GOOGLE_SHEETS_REDIRECT_URI`
 - `GOOGLE_SHEETS_TOKEN_ENCRYPTION_KEY`
 - `GOOGLE_SHEETS_SYNC_CRON_SECRET`
-- `YOUPI_API_URL`
-- `YOUPI_CREATE_PAYMENT_PATH`
-- `YOUPI_MERCHANT_ID`
-- `YOUPI_WEBHOOK_SECRET`
-- `YOUPI_RETURN_URL`
-- `YOUPI_API_CONTRACT_CONFIRMED`
-- `YOUPI_ENABLED`
-- `YOUPI_TEST_MODE`
-
-Enter values through Supabase Edge Function Secrets or another approved secret manager. Do not print, commit or place them in browser storage or logs. Keep `YOUPI_ENABLED=false`, `YOUPI_API_CONTRACT_CONFIRMED=false` and `YOUPI_TEST_MODE=true` until the provider contract and sandbox are independently verified.
+Enter approved values through Supabase Edge Function Secrets or another approved secret manager. Do not print, commit or place secrets in browser storage or logs.
 
 ## Function deployment inventory
 
@@ -58,8 +49,6 @@ The repository contains:
 - `google-sheets-oauth`
 - `google-sheets-sync`
 - `invite-member`
-- `youpi-create-payment`
-- `youpi-webhook`
 - `meta-lead-webhook`
 
 Meta integration remains disabled and must not be enabled as part of staging payment verification. `supabase/config.toml` is not present, so project linking and function deployment settings must be configured explicitly in the operator environment and must not be committed automatically.

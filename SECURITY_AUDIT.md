@@ -6,7 +6,7 @@
 - Platform administrators receive metadata policies, not unrestricted lead access.
 - Calls, visits and bookings have corrective authorization policies.
 - Payment secrets and provider credentials are server-side only.
-- YouPI-PG webhooks verify raw-body HMAC signatures and delivery identifiers.
+- Generic payment history remains RLS-protected; no payment-provider webhook endpoint is included.
 - CSV/HTML export formula and markup injection is mitigated.
 - Growth Tools default to disabled and isolated deployment.
 

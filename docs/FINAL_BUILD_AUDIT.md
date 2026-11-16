@@ -34,7 +34,7 @@ The frontend compiles and the local test suite passes, but the application is **
 | Sitemap publication | Partially implemented | API endpoints `/seo/sitemap.xml` and `/seo/robots.txt` exist. Root static-host mapping/proxy/publication is absent; the root `public/robots.txt` does not advertise an unverified sitemap. |
 | Blog | Not implemented | No blog route, CMS, or blog content system was found. |
 | Role-specific documentation | Implemented in app; live authorization unverified | Authenticated `/docs`, `/admin/docs`, and `/saas/admin/docs` pages exist. Do not confuse these with public standalone domain guides. |
-| Billing/payments | Partially implemented; provider blocked | Platform billing and payment hardening exist. YouPI is explicitly disabled; no provider contract/staging/live settlement evidence. Do not enable production payments. |
+| Billing/payments | Partially implemented; checkout unavailable | Platform plan/subscription administration, generic payment history, and manual review records remain. No payment-provider checkout or settlement integration is included. |
 | QR payments | Not production-enabled | Review/hardening code exists, but production QR/manual approval is not verified; keep disabled. |
 
 ## Repository checks
@@ -76,6 +76,6 @@ The frontend compiles and the local test suite passes, but the application is **
 4. Configure the static frontend and public SEO route publication with the selected host.
 5. Test tenant isolation, Super Admin authorization, backups/restoration, outbox retries/replay and reconciliation.
 6. Connect a real custom domain only after provider DNS/TLS configuration; do not mark it live based on local code.
-7. Keep Meta, YouPI and QR production payments disabled until provider approval and staging verification.
+7. Keep provider checkout unavailable until a provider is separately selected, authorized, and verified in staging; do not treat receipts as settlement.
 
 See [deployment readiness](./DEPLOYMENT_READINESS.md), [environment variables](./PRODUCTION_ENV_VARIABLES.md), [migration guide](./SUPABASE_MIGRATION_GUIDE.md), [production checklist](./PRODUCTION_TEST_CHECKLIST.md), and [rollback guide](./ROLLBACK_GUIDE.md).

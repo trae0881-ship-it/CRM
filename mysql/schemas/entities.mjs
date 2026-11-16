@@ -3,7 +3,7 @@ export const ENTITY_TABLES = [
   "lead_activities", "follow_up_tasks", "meta_integrations", "meta_forms", "webhook_events", "audit_logs",
   "calls", "site_visits", "bookings", "sales_targets", "subscription_plans", "subscriptions", "invoices",
   "payments", "lead_shares", "lead_journey_events", "lead_skips", "whatsapp_messages", "lead_statuses",
-  "notifications", "telephony_provider_configs", "provider_webhook_events", "payment_gateway_configs",
+  "notifications", "telephony_provider_configs", "provider_webhook_events",
   "payment_transactions", "payment_webhook_deliveries", "payment_state_history", "qr_payment_reviews",
   "growth_tool_access", "growth_tool_jobs", "assignment_rules", "assignment_history", "lead_scoring_settings",
   "lead_score_history", "sales_pipelines", "pipeline_stages", "lead_stage_history", "automation_workflows",
@@ -28,7 +28,6 @@ const compositeKeys = {
   lead_scoring_settings: ["organization_id"],
   organization_settings: ["organization_id"],
   growth_tool_access: ["tool_id", "organization_id"],
-  payment_gateway_configs: ["provider"],
   google_sheet_source_rows: ["integration_id", "source_row_key"],
 };
 

@@ -56,7 +56,7 @@ Do not reset, truncate, drop, overwrite or apply this plan to production.
 | Tenant isolation | Organization A/B API, RPC and Storage denial tests | BLOCKED |
 | Google Sheets | OAuth, import, incremental sync and disconnect | BLOCKED |
 | Billing | Plan, subscription, MRR and history checks | BLOCKED |
-| YouPI | Sandbox signature, amount, replay and reconciliation tests | BLOCKED |
+| Payment provider | No provider integration is currently included; re-evaluate only after separate authorization | NOT IMPLEMENTED |
 | QR payments | Provider QR contract, expiry and manual-review tests | BLOCKED |
 
 ## Rollback and stop conditions

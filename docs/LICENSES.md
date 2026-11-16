@@ -1,13 +1,31 @@
 # Open-source license and security register
 
-This register records repositories considered for isolated integration. No repository source has been copied into the Adometa frontend, and no listed service is deployed by this change.
+The following details were checked against each official GitHub repository and pinned release/tag on 2026-11-16. A commit SHA identifies the inspected source snapshot; it is not evidence that the project is deployed. No third-party project source is copied into the Adometa frontend.
 
-| Project | Repository | Observed license | Deployment decision | Current review |
-|---|---|---|---|---|
-| Open SEO | [alexsilver8/open-seo](https://github.com/alexsilver8/open-seo) | MIT | Isolated service only | Dependency and SSRF review pending |
-| Open SEO Crawler | [puneetindersingh/open-seo-crawler](https://github.com/puneetindersingh/open-seo-crawler) | MIT | Isolated crawler only | SSRF, robots, rate and resource review pending |
-| Google Maps Scraper Kit | [Mahanaicoach/google-maps-scraper-kit](https://github.com/Mahanaicoach/google-maps-scraper-kit) | MIT | Isolated worker only | Terms, lawful basis and source review pending |
-| LeadPro | [CodePhantom-1/LeadPro-4](https://github.com/CodePhantom-1/LeadPro-4) | No SPDX license declared in repository metadata | Do not redistribute or deploy until resolved | Licensing, consent and sender review blocked |
-| listmonk | [knadh/listmonk](https://github.com/knadh/listmonk) | AGPL-3.0 | Separate deployment | Source disclosure and modification obligations required |
+| Project | License and notice | Version / release date | Full commit SHA | License decision | Security / deployment / health |
+|---|---|---|---|---|---|
+| [Open SEO](https://github.com/alexsilver8/open-seo) | MIT; `Copyright (c) 2026 Alexander Silver` | `v0.3.0` / 2026-10-11 | `cc7b9e6f85c613c146d45d63486d246d8497e620` | Verified; retain upstream LICENSE notice | **BLOCKED**: confirmed SSRF / not deployed / not deployed |
+| [Open SEO Crawler](https://github.com/puneetindersingh/open-seo-crawler) | MIT; `Copyright (c) 2026 Puneet Inder Singh` | `mcp-v1.0.0` / 2026-10-16 | `654350c9ded45b7cc53df9150bfdb092b169b42d` | Verified; retain upstream LICENSE notice | **BLOCKED**: confirmed SSRF / not deployed / not deployed |
+| [Google Maps Scraper Kit](https://github.com/Mahanaicoach/google-maps-scraper-kit) | MIT; `Copyright (c) 2026 Mahan (github.com/Mahanaicoach)` | `v2.3.2` / 2026-11-10 | `e370d0cb2a255fee3cd894e4ef1ba9aa170191e1` | Verified; retain upstream LICENSE notice | **BLOCKED** pending full dependency audit / not deployed / not deployed |
+| [LeadPro](https://github.com/CodePhantom-1/LeadPro-4) | No SPDX identifier or LICENSE file found at the inspected snapshot. README has an MIT badge linking to a missing LICENSE; that is not an established license grant. | No release/tag; default-branch snapshot | `ef98d85e4e94f9d80578cba142ce1dcda6ea3133` | **BLOCKED**; obtain written permission from the copyright owner before use, redistribution, or integration | **BLOCKED** by license and incomplete dependency audit / not deployed / not deployed |
+| [listmonk](https://github.com/knadh/listmonk) | AGPL-3.0; retain the complete upstream license and all source copyright notices. The license text carries `Copyright (C) 2007 Free Software Foundation, Inc.` | `v6.2.0` / 2026-06-26 | `ef0a75872463f10a4848af6c547d1c057405453a` | Verified; deployment requires the review in [LISTMONK_AGPL_COMPLIANCE.md](./LISTMONK_AGPL_COMPLIANCE.md) | **BLOCKED** pending advisory and build/test review / not deployed / not deployed |
 
-Repository metadata was checked on 2026-11-02. Versions and commits are not pinned yet. Before deployment, record the exact commit, dependency lockfiles, local modifications, security review result, attribution, and update process.
+The listmonk prerelease `v7.0.0-beta.2` was not selected; `v6.2.0` was the latest stable release found during verification. LeadPro's SHA is only an immutable pointer to the reviewed snapshot, not an approved version or license.
+
+## Scope and evidence
+
+- Release/tag names, release dates, full commit SHAs, repository license metadata, and the listed LICENSE files were checked against the official GitHub repositories on 2026-11-16.
+- The three MIT LICENSE files were read at their pinned tags. Preserve their complete copyright and permission notices in every copy or substantial portion.
+- LeadPro's repository license endpoint reported no license and its linked LICENSE was absent at the inspected commit, despite a README MIT badge. This does not establish a grant or permission to use its code.
+- The independent static/dependency review found confirmed SSRF risks in Open SEO and Open SEO Crawler. The pinned Open SEO source checks DNS independently of the subsequent fetch, permitting DNS rebinding; the pinned crawler's unauthenticated `/fetch-robots-txt` followed redirects without private-address checks and the server bound to `0.0.0.0`. Local remediation patches are preserved in [SECURITY_REMEDIATION_PATCHES.md](./SECURITY_REMEDIATION_PATCHES.md), but the pinned upstream snapshots remain vulnerable until the patches are reviewed and applied. Both remain blocked from deployment.
+- The Open SEO patch passed 229 tests, a production build (including TypeScript), and `pnpm audit --prod` with no known vulnerabilities after updating Next.js, Undici, and Nodemailer. The crawler patch passed its Python syntax check, `pytest tests` (6 tests), and the executable E2E harness (26/26 checks). Its test harness uses a deterministic stub restricted to the exact local fixture URL; production private-address checks remain active. The repository-root browser-driven `test_data_correctness.py` was not run because Playwright/browser setup, a running crawler, and live crawl targets are required. These are local temporary-clone results, not upstream release verification.
+- Google Maps Scraper Kit had no confirmed vulnerability in the limited static review; only Playwright 1.60.0 was checked against OSV, and the public SBOM was unavailable. LeadPro's static review found no confirmed vulnerability, but its license blocks use and its dependency review is incomplete. listmonk's limited review found no confirmed exploitable vulnerability but reported OSV advisories for Goldmark 1.7.12, Echo 4.13.4, and go-jose 4.1.4; complete impact analysis and build/test review before deployment.
+- The Open SEO dependency check queried 28 versioned packages in the public default-branch GitHub SBOM without matches; the reviewed code was cross-checked against the pinned source, but a full resolved-dependency audit for every pinned release is not complete. The crawler, Maps, and LeadPro public SBOM endpoints were unavailable. No live-service probes, container builds, or deployments were run. Only the Open SEO and crawler temporary-clone tests/build checks described above were executed; Maps, LeadPro, and listmonk still lack build/test review. No project is labelled `SECURITY REVIEW COMPLETE`, `DEPLOYED`, or `HEALTHY`.
+
+## Safe-use conditions
+
+- Pin deployments to the recorded full commit, not a floating branch or `latest` tag.
+- Keep each project in its own container/service, network, credentials, data store, and backup/restore procedure.
+- Do not expose crawler or scraper services publicly. Respect robots.txt, service terms, privacy obligations, rate limits, suppression requests, and applicable law.
+- Do not deploy or redistribute LeadPro without explicit written licensing permission.
+- Do not link or copy listmonk into the CRM application. Complete legal/compliance review before operating a modified network service; see the AGPL checklist.

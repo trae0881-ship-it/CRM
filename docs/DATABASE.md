@@ -7,7 +7,7 @@ MySQL mirrors approved source rows into namespaced `crm_mirror_*` JSON snapshot 
 All organization-owned tables include `organization_id`, timestamps, and soft-delete fields where appropriate. Foreign keys are scoped and indexes begin with `organization_id` to support tenant isolation and reporting.
 
 Core tables: `organizations`, `profiles`, `organization_members`, `teams`, `team_members`, `invitations`, `leads`, `lead_activities`, `calls`, `follow_up_tasks`, `site_visits`, `bookings`, `campaigns`, `sales_targets`, `subscription_plans`, `subscriptions`, `invoices`, `payments`, `meta_integrations`, `meta_forms`, `webhook_events`, and `audit_logs`. Phase 2 also adds `lead_statuses`, `notifications`, `telephony_provider_configs`, and `provider_webhook_events`.
-Migration 012 adds the provider-neutral YouPI-PG ledger: `payment_gateway_configs`, `payment_transactions`, and `payment_webhook_deliveries`. It stores masked gateway metadata only; merchant secrets remain Edge Function secrets.
+Migration 012 is a historical payment-schema migration. The forward retirement migration removes its provider configuration and overview function while retaining generic transaction, webhook-delivery, payment-state-history, and QR-review records. Do not edit historical migrations; the legacy provider identifier may remain in migration 012 and existing historical rows.
 Migration 013 adds disabled-by-default Growth Tools configuration, organization access grants and tenant-scoped job history. It does not execute third-party tools.
 
 RLS policies derive the active organization and role from `organization_members`, never from an untrusted request body. Agents see assigned leads and active shares; managers see leads assigned to their teams; owners and organization admins see authorized company records. Sensitive multi-row changes use transactions and audit entries. The additive SaaS migrations are `202611020002_add_company_owner_role.sql`, `202611020003_saas_hierarchy.sql`, `202611020004_harden_role_rls.sql`, `202611020005_security_hardening.sql`, `202611020006_lead_journey_sharing.sql`, `202611020007_calling_whatsapp.sql`, `202611020008_status_notifications_provider.sql`, `202611020009_phase_two_operations.sql`, `202611020010_platform_admin_audit.sql`, and `202611020011_security_corrections.sql`. Journey events are read-only to authenticated clients and written by controlled database triggers and RPCs. Calling, WhatsApp, operations, and exports require the same organization and lead authorization. Migration 010 adds explicit platform-admin metadata policies, support-grant storage, a bulk notification-read RPC, immutable timeline triggers for assignment/calls/follow-ups/visits/bookings, and deduplicated notification triggers for supported assignment/sharing/task/visit/booking events. Migration 011 narrows call, visit and booking writes to authorized leads and adds a server-side payment RPC that rejects overpayment. It does not grant Super Admin access to private lead rows.
@@ -27,7 +27,7 @@ Review and execute only after staging backup and schema inspection, in this orde
 9. `202611020009_phase_two_operations.sql`
 10. `202611020010_platform_admin_audit.sql`
 11. `202611020011_security_corrections.sql`
-12. `202611020012_youpi_gateway.sql`
+12. `202611020012` (historical payment schema)
 13. `202611020013_growth_tools.sql`
 14. `202611020014_advanced_automation.sql`
 15. `202611020015_sales_operations.sql`
@@ -37,6 +37,15 @@ Review and execute only after staging backup and schema inspection, in this orde
 19. `202611020019_google_sheets_and_pipeline_access.sql`
 20. `202611020020_platform_billing_management.sql`
 21. `202611020021_payment_qr_hardening.sql`
+22. `202611020022_self_profile_update.sql`
+23. `202611020023_block_suspended_organization_access.sql`
+24. `202611020024_company_owner_audit_read.sql`
+25. `202611020025_mysql_sync_outbox.sql`
+26. `202611020026_platform_domains.sql`
+27. `202611020027_public_contact_submissions.sql`
+28. `20261116151122_assign_existing_super_admin.sql`
+29. `20261116160000_platform_user_management.sql`
+30. `20261116160100_retire_payment_gateway_config.sql`
 
 The review found overlapping lead timeline triggers in the prepared Phase 3 migration; migration 010 now scopes its trigger to assignment changes and leaves existing creation/status capture intact. Migration 011 is corrective, migration 012 adds the payment ledger, migration 013 adds disabled-by-default Growth Tools control-plane records, migration 014 adds tenant-scoped automation records, and migration 015 adds Customer 360, campaign costs, target history, commission, support ticket and import-job records. Workflow actions are structured JSON and cannot execute arbitrary user code. These migrations must be applied only after the earlier tables and columns exist. Verify existing constraints before applying because the original migrations are not universally idempotent.
 
@@ -53,5 +62,7 @@ The review found overlapping lead timeline triggers in the prepared Phase 3 migr
 - Migration 018 adds organization settings, server-authorized membership/profile operations, self-change and privilege-escalation guards, subscription seat-limit checks and audit events. It must be applied before enabling organization administration in staging.
 - Migration 019 adds organization-scoped Google Sheets OAuth state, encrypted-token metadata, source-row mapping and sync history tables. It also hardens pipeline movement by role and assignment/team scope. OAuth tokens are not readable through frontend queries.
 - Migration 021 adds organization-scoped payment idempotency, payment state history and pending QR/manual review records. Receipts remain pending until an authorized review; they never activate a subscription automatically.
+- Migration 20261116160100 retires the provider configuration table and overview RPC, removes MySQL mirror events for that configuration only, and broadens generic payment provider identifiers. It does not delete transaction, webhook-delivery, state-history, or QR-review rows. Review/apply it in staging after confirming the prior migration history.
+- The provider retirement is forward-only. There is no SQL rollback that restores deleted gateway configuration; if rollback/recovery is required, restore a verified pre-migration backup to an isolated environment and review it rather than re-enabling the retired provider in production. Payment transaction/history rows are not removed. The migration is safe to retry after a failed attempt because it drops the replacement constraints before recreating them; inspect the target migration history before retrying.
 - Migration 025 (not applied by this repository task) adds a transactionally written, secret-filtering CRM outbox with service-role-only ordered claim/ack/failure/replay/health RPCs for the MySQL worker. Apply only after confirming the staging project and remote migration history.
 - The new MySQL migration creates only namespaced replica tables and sync metadata. It does not truncate existing data. The real MySQL test suite skips unless an explicit disposable `MYSQL_TEST_DATABASE` equals `MYSQL_DATABASE`; passing source tests does not establish a live connection.

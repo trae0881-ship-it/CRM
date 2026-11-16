@@ -30,7 +30,7 @@ The static frontend cannot run the long-lived MySQL worker or database API. Depl
 
 ## Growth Tools deployment
 
-Growth Tools are intentionally not bundled into the React application. Each service requires a separate authenticated deployment with private networking, resource limits, timeouts, retry limits, structured logs and health checks.
+Growth Tools are intentionally not bundled into the React application. The selected upstream versions and full source commits are recorded in [GROWTH_TOOLS.md](./GROWTH_TOOLS.md) and [LICENSES.md](./LICENSES.md). No service has been deployed, and no Docker image, credentials, health endpoint, or backup exists in this repository. Open SEO and Open SEO Crawler are blocked by confirmed SSRF issues; LeadPro is blocked by its unresolved license; the other two remain blocked pending complete dependency/build review. Do not mark any service deployed or healthy until blockers are resolved and a real isolated staging deployment and checks are recorded.
 
 - Keep service ports private; expose only an authenticated Adometa backend adapter.
 - Store provider tokens, SMTP credentials and service credentials in server-side secret storage.
@@ -40,8 +40,12 @@ Growth Tools are intentionally not bundled into the React application. Each serv
 - Block loopback, private, link-local and cloud metadata addresses.
 - Respect robots.txt, terms, rate limits and suppression requests.
 - Require review before importing discovered leads or sending campaigns.
+- Pin each image to a built digest and source revision, run as a non-root user where supported, drop unnecessary capabilities, use a read-only root filesystem where supported, and apply per-service CPU, memory, process, network, and storage quotas.
+- Use separate persistent volumes and encryption keys per service. Back up databases and required uploaded/configuration data, encrypt and restrict backups, document retention, and test restore before production use.
 
-Open SEO, Open SEO Crawler and Google Maps Scraper Kit require isolated workers. LeadPro must not be deployed until its repository license and outreach consent controls are resolved. listmonk requires PostgreSQL, SMTP configuration and AGPL-3.0 compliance review. No service is deployed by this phase; statuses remain `Not configured` until authenticated health checks pass.
+Open SEO, Open SEO Crawler, and Google Maps Scraper Kit require isolated workers. LeadPro is blocked until written licensing permission is verified. listmonk requires its own PostgreSQL/SMTP deployment and the completed AGPL checklist in [LISTMONK_AGPL_COMPLIANCE.md](./LISTMONK_AGPL_COMPLIANCE.md). CPU, RAM, storage, and concurrency requirements have not been measured for Adometa workloads; record vendor requirements and run representative isolated staging load tests before setting production quotas. Do not invent sizing values. Health status remains `NOT DEPLOYED` until authenticated health and recovery checks pass.
+
+No separate per-project Compose configurations are supplied because none is cleared for deployment: two projects have confirmed SSRF issues, LeadPro's license is unresolved, and the remaining projects have incomplete dependency/build checks. Local source patches and validation results for the two SSRF issues are documented in [SECURITY_REMEDIATION_PATCHES.md](./SECURITY_REMEDIATION_PATCHES.md); they are not upstream commits and do not clear either deployment block. After blockers are fixed and review passes, create a separately pinned deployment file per cleared project and include its image digest, private network, health check, restart policy, resource limits, persistent storage, backup/restore procedure, and secret names (never secret values) in the deployment record.
 
 ## Phase 8 staging and recovery
 

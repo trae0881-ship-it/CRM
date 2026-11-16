@@ -13,7 +13,7 @@ Reviewed application authentication/session handling, tenant service patterns, a
 - Platform dashboard, company, status, subscription and membership operations use `is_platform_admin()`-guarded RPCs in migration 020.
 - Organization membership/profile operations use authorization RPCs with Super Admin/self-role restrictions, last-owner safeguards, seat-limit checks and audit events in migration 018.
 - Pipeline stage movement has an authorization RPC, optimistic timestamp check and audit/history foundations.
-- YouPI Edge Functions keep provider/service credentials server-side, validate membership, verify raw-body signatures and record idempotency/delivery state. Reconciliation gates subscription activation.
+- Generic payment history remains RLS-protected; no payment-provider checkout or webhook endpoint is currently implemented.
 - Google Sheets OAuth and sync use server-side Google credentials and encrypted tokens, short-lived one-time OAuth state and organization membership checks.
 - Existing local tests cover policy/RPC patterns, payment idempotency/reconciliation, QR review and Google sync source mapping.
 - Migration 023 updates shared organization-membership, role, team-manager and team-member predicates to require an active organization, making suspension effective for tenant RLS policies using these helpers after deployment.
@@ -50,7 +50,7 @@ The original profile table had no self-update RLS policy, so a client-side metad
 
 ## Payment/integration safety
 
-- Current code gates YouPI on `YOUPI_ENABLED` and `YOUPI_API_CONTRACT_CONFIRMED`; keep both false until documented staging checks pass.
+- Do not infer settlement from plan assignment or browser responses; verify payment history and any manual review evidence.
 - Do not enable QR production payments or activate paid subscriptions based on client assertions or uploaded receipts.
 - Keep Meta labelled Coming Soon until real configuration and verification are completed.
 - Check all database mutation errors in OAuth, sync, payment and webhook paths; ensure partial failures are retry-safe and visible.

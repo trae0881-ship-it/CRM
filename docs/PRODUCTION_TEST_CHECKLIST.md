@@ -57,7 +57,7 @@ Complete this checklist in staging before production approval. Record evidence, 
 
 - [ ] Verify Google OAuth state, redirect, token encryption, disconnect, spreadsheet/worksheet selection, manual sync, row errors and replay.
 - [ ] Keep Meta Lead Ads disabled until webhook signature, page mapping, dedupe, error recording and lead scope pass provider staging.
-- [ ] Keep YouPI and production QR payments disabled; never activate subscriptions on unverified webhook/client state.
+- [ ] Confirm no payment-provider checkout is deployed; never activate subscriptions on unverified client or receipt state.
 - [ ] Test lead create/search/status/assignment/activity permissions and data exports.
 - [ ] Test teams, invites, seat limit, calling, follow-ups, notifications, bookings, pipeline moves and reports for each role.
 - [ ] Mark incomplete CRM modules clearly; do not claim customer 360, campaign analytics, support/import workflows or integrations are complete without functional evidence.

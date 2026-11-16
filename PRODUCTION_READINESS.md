@@ -19,7 +19,7 @@ Phase 8 staging status: **WAITING FOR DEPLOYMENT**. No staging project, authenti
 2. Create two organizations and test every role and cross-tenant denial.
 3. Configure Supabase Auth, Edge Functions, logging and backups.
 4. Deploy and health-check each Growth Tool separately.
-5. Obtain YouPI-PG test credentials and verify signed webhooks plus bank-statement reconciliation.
+5. Select and separately review a payment provider before implementing or enabling checkout.
 6. Resolve LeadPro licensing in writing before deployment.
 7. Configure monitoring, alerting, retry queues and rollback procedures.
 8. Re-run automated tests against staging and record evidence.

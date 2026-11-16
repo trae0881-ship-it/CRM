@@ -47,7 +47,7 @@ export function FeaturesPage() {
   return <div className="marketing-page">
     <PublicHero eyebrow="PRODUCT FEATURES" title="Tools for a more organized sales workflow." description="Explore capabilities present in the Adometa CRM project. Availability depends on role, configuration and the deployed integrations." />
     <div className="feature-grid">{featureCards.map(({ icon: Icon, ...feature }) => <article className="feature-card" key={feature.title}><span className="feature-icon"><Icon size={20} /></span><h2>{feature.title}</h2><p><strong>What it does:</strong> {feature.does}</p><p><strong>How it works:</strong> {feature.works}</p><p><strong>Who uses it:</strong> {feature.who}</p><p><strong>Problem it helps with:</strong> {feature.problem}</p></article>)}</div>
-    <section className="integration-notice"><h2>Integrations: current availability</h2><p>Google Sheets has a server-side integration path and requires provider credentials and setup. Meta Lead Ads is disabled. WhatsApp currently opens a visitor- or user-initiated click-to-chat link; no WhatsApp Business API notification is configured. YouPI production payments remain disabled.</p><div className="marketing-actions"><a className="button secondary" href="/integrations">Integration details</a><a className="button secondary" href="/faq">Frequently asked questions</a></div></section>
+    <section className="integration-notice"><h2>Integrations: current availability</h2><p>Google Sheets has a server-side integration path and requires provider credentials and setup. Meta Lead Ads is disabled. WhatsApp currently opens a visitor- or user-initiated click-to-chat link; no WhatsApp Business API notification is configured. Adometa does not currently provide payment-provider checkout.</p><div className="marketing-actions"><a className="button secondary" href="/integrations">Integration details</a><a className="button secondary" href="/faq">Frequently asked questions</a></div></section>
   </div>;
 }
 
@@ -179,7 +179,7 @@ const integrationItems = [
   ["Google Sheets", "A server-side synchronization path exists for importing leads. A platform administrator must configure OAuth credentials and connect an organization sheet before it is usable."],
   ["WhatsApp", "The CRM creates user-initiated click-to-chat links. It does not send Business API messages or report delivered/read status."],
   ["Meta Lead Ads", "The webhook code exists, but Meta Lead Ads is intentionally disabled until the provider setup and secrets are approved."],
-  ["Payments", "Billing records and payment hardening exist, but YouPI and QR production payments remain disabled."],
+  ["Payments", "Billing records and payment review history exist; no payment-provider checkout is currently available."],
   ["Calling", "The calling workspace uses the device dialer and records an outcome manually. No telephony provider is configured."],
 ];
 
@@ -220,7 +220,7 @@ const legalContent: Record<string, { eyebrow: string; title: string; intro: stri
     sections: [
       ["Product scope", "Adometa CRM provides configured tools for lead management, sales activity, role-scoped workspaces and related operations. Features may depend on plan records, permissions, integrations and deployment settings."],
       ["Accounts and organization access", "Users should use their own authorized accounts and follow their organization's access policies. Administrators are responsible for assigning roles and managing access for their organization."],
-      ["Integrations and payments", "External provider connections require separate configuration and may be unavailable. WhatsApp links are user-initiated. Production YouPI and QR payment processing are not enabled by this project."],
+      ["Integrations and payments", "External provider connections require separate configuration and may be unavailable. WhatsApp links are user-initiated. Adometa does not currently provide payment-provider checkout."],
       ["Commercial terms", "Current prices, billing periods, taxes, cancellation, refunds and payment availability must be confirmed directly with Adometa. Plan configuration alone does not confirm a checkout or payment."],
       ["Required pre-launch review", "The service operator must add a legal contracting entity, effective date, support contact, acceptable-use rules, security responsibilities and jurisdiction-specific legal terms before treating this page as binding."],
     ],

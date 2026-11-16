@@ -30,13 +30,6 @@ All values below belong in Supabase Edge Function secrets (or an approved server
 | `META_APP_SECRET` | Verifies signed Meta webhook payloads. | Required only if the webhook is deployed and activated. | Meta for Developers → app settings. | Staging/production if Meta webhooks are enabled |
 | `META_VERIFY_TOKEN` | Verifies the Meta webhook handshake. | Required only if the webhook is deployed and activated. | Generate and keep the same private token in Meta webhook configuration and Edge Function secrets. | Staging/production if Meta webhooks are enabled |
 | `META_GRAPH_API_VERSION` | Graph API version used for lead lookup. | Optional; code defaults to `v21.0`. | Select a supported version in Meta for Developers after compatibility review. | Staging/production if Meta webhooks are enabled |
-| `YOUPI_API_URL` | Provider API origin for the disabled YouPI adapter. | Required only if YouPI is explicitly enabled after review. | YouPI provider documentation/approved staging contract. | Staging only after provider approval; production blocked |
-| `YOUPI_CREATE_PAYMENT_PATH` | Provider create-payment endpoint path. | Required only if YouPI is explicitly enabled after review. | YouPI provider documentation/approved staging contract. | Staging only after provider approval; production blocked |
-| `YOUPI_MERCHANT_ID` | Provider merchant identifier. | Required only if YouPI is explicitly enabled after review. | YouPI merchant account. | Staging only after provider approval; production blocked |
-| `YOUPI_WEBHOOK_SECRET` | Verifies provider webhook signatures. | Required only if the webhook is deployed and activated. | YouPI provider dashboard/approved staging contract. | Staging only after provider approval; production blocked |
-| `YOUPI_RETURN_URL` | Customer return URL after checkout. | Required only if YouPI is explicitly enabled after review. | Approved app URL for the environment. | Staging only after provider approval; production blocked |
-| `YOUPI_API_CONTRACT_CONFIRMED` | Explicit API contract gate; must be exactly `true` before create-payment can run. | Optional; keep `false` unless the contract is reviewed. | Set only after technical/provider review and documented staging validation. | Staging only; production blocked |
-| `YOUPI_ENABLED` | Explicit payment activation gate; must be exactly `true` before create-payment can run. | Optional; keep `false`. | Enable only after approved end-to-end staging verification. | Staging only; production blocked |
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are Supabase-managed runtime values in hosted Edge Functions where available. Configure them as secrets for local function development. Never place service-role credentials in `.env` values prefixed with `VITE_`.
 
@@ -75,13 +68,13 @@ Use the provider's network ACL/security group to permit MySQL only from the Node
 - A MySQL server, staging credentials, and remote Supabase migration history are not configured in this workspace; these settings describe the new server-side implementation, not a verified live connection.
 - `.env.example` contains placeholders, not credentials. The local `.env` had no assigned key names during the audit; its values were not printed. Supabase connectivity is not verified by the presence of variable names in a template.
 - Authentication redirects use `window.location.origin` and `/reset-password`, not a separate environment variable. Add the exact local, staging, and production origins/redirect paths to Supabase Auth URL Configuration.
-- `META_APP_ID` and `YOUPI_TEST_MODE` are present in older setup notes/templates but are not read by runtime source code and are intentionally excluded from `.env.example`.
+- `META_APP_ID` is mentioned in older setup notes but is not read by runtime source code and is intentionally excluded from `.env.example`.
 
 ## Setup and verification
 
 1. Copy `.env.example` to `.env` for local frontend development. `.env` and `.env.*` are ignored by Git; `.env.example` is the only allowed tracked env file.
 2. Set the two `VITE_` variables from the intended Supabase project. Never paste service-role keys or OAuth secrets into the frontend configuration.
-3. Configure only the Edge Function secrets for integrations that have been reviewed and are actually being deployed. Leave all `YOUPI_*` activation gates false.
+3. Configure only the Edge Function secrets for integrations that have been reviewed and are actually being deployed.
 4. Configure Supabase Auth Site URL and allowed redirect URLs for localhost, staging, and production separately.
 5. Before any migration, verify the project URL/identity and remote migration history against staging. No remote database or migration status is verified by local build/tests.
 6. Configure MySQL only on the persistent Node service and verify with the real staging integration tests. No MySQL endpoint or credentials were configured during this implementation.

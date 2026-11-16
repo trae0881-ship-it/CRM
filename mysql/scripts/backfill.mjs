@@ -9,7 +9,7 @@ import { safeErrorCode } from "../sync/outbox.mjs";
 const GLOBAL_SCOPE = "00000000-0000-0000-0000-000000000000";
 const GLOBAL_ENTITIES = new Set([
   "profiles", "meta_forms", "webhook_events", "subscription_plans",
-  "payment_gateway_configs", "payment_webhook_deliveries", "pipeline_stages", "contact_submissions",
+  "payment_webhook_deliveries", "pipeline_stages", "contact_submissions",
 ]);
 const COMPOSITE_ORDER = {
   organization_members: ["organization_id", "user_id"],
@@ -17,7 +17,6 @@ const COMPOSITE_ORDER = {
   lead_scoring_settings: ["organization_id"],
   organization_settings: ["organization_id"],
   growth_tool_access: ["organization_id", "tool_id"],
-  payment_gateway_configs: ["provider"],
 };
 
 function ordered(query, entityType) {

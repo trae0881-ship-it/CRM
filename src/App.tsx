@@ -4,7 +4,7 @@ import {
   ClipboardList, Clock3, Filter, LayoutDashboard, Menu, MoreHorizontal, Phone,
   Plus, Search, Settings, Target, TrendingUp, Users, X, Zap, Headphones, LogOut,
   UsersRound, PieChart, Plug, ShieldCheck,
-  Building2, UserPlus, CreditCard, Wrench, Bot, Database, Globe2,
+  Building2, UserPlus, Wrench, Bot, Database, Globe2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { isSupabaseConfigured, supabase, supabaseConfigError } from "./lib/supabase";
@@ -22,8 +22,8 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { PublicRoute } from "./components/PublicRoute";
 import { BookingsView, FollowUpsView, NotificationsView, ReportsView, SiteVisitsView, StatusSettingsView } from "./components/OperationsViews";
 import { PlatformAdminView } from "./components/PlatformAdminView";
+import { PlatformUserManagementView } from "./components/PlatformUserManagementView";
 import { CompanyAdminView } from "./components/CompanyAdminView";
-import { PaymentGatewayView } from "./components/PaymentGatewayView";
 import { GrowthToolsView, LicenseRegisterView } from "./components/GrowthToolsView";
 import { AutomationView } from "./components/AutomationView";
 import { Customer360View, SalesPipelineView } from "./components/SalesOperationsView";
@@ -38,7 +38,7 @@ import { DomainLinksView, DomainManagementView } from "./components/DomainManage
 import { PublicPage as MarketingPublicPage } from "./components/PublicPages";
 import { PublicLoading } from "./components/PublicLoading";
 
-type View = "Overview" | "Leads" | "Campaigns" | "Follow-ups" | "Calling" | "Teams" | "Reports" | "Integrations" | "Company" | "Site Visits" | "Bookings" | "Notifications" | "Statuses" | "Platform" | "Payment Gateway" | "Growth Tools" | "License Register" | "Database Monitoring" | "Automation" | "Sales Pipeline" | "Customer 360";
+type View = "Overview" | "Leads" | "Campaigns" | "Follow-ups" | "Calling" | "Teams" | "Reports" | "Integrations" | "Company" | "Site Visits" | "Bookings" | "Notifications" | "Statuses" | "Platform" | "Users" | "Growth Tools" | "License Register" | "Database Monitoring" | "Automation" | "Sales Pipeline" | "Customer 360";
 type Status = "New" | "Contacted" | "Qualified" | "Follow-up" | "Won";
 type Lead = { id: string; dbId?: string; phone?: string | null; name: string; company: string; source: string; status: Status; score: number; owner: string; date: string; color: string };
 
@@ -63,6 +63,8 @@ const navItems: { label: View; icon: typeof LayoutDashboard }[] = [
 
 const domainAdminPaths = new Set(["/saas/admin/domains", "/saas/admin/domains/links"]);
 const isDomainAdminPath = (path: string) => domainAdminPaths.has(path);
+const isPlatformUsersPath = (path: string) => path === "/saas/admin/users";
+const isSaasAdminPath = (path: string) => isDomainAdminPath(path) || isPlatformUsersPath(path);
 const publicMarketingPaths = new Set(["/", "/features", "/pricing", "/about", "/contact", "/integrations", "/faq", "/privacy", "/terms", "/cookies"]);
 
 function App() {
@@ -102,7 +104,7 @@ function App() {
 
   useEffect(() => {
     const path = window.location.pathname;
-    if (!isDomainAdminPath(path) || session === undefined) return;
+    if (!isSaasAdminPath(path) || session === undefined) return;
     if (!session) {
       window.location.replace("/super-admin/login");
       return;
@@ -197,12 +199,12 @@ function App() {
       const path = window.location.pathname;
       if (current.role === "super_admin") {
         if (path === "/login" || path === "/dashboard" || path === "/") window.history.replaceState({}, "", "/super-admin/dashboard");
-        setView("Platform");
-      } else if (path === "/super-admin/dashboard" || path === "/super-admin/login") {
+        setView(isPlatformUsersPath(path) ? "Users" : "Platform");
+      } else if (path === "/super-admin/dashboard" || path === "/super-admin/login" || isPlatformUsersPath(path)) {
         window.history.replaceState({}, "", "/dashboard");
         setView("Overview");
       }
-      if (getDocumentationCenter(path) || isDomainAdminPath(path)) return;
+      if (getDocumentationCenter(path) || isSaasAdminPath(path)) return;
       try {
         const [summary, currentTeams, currentSalespeople, currentTeamNames] = await Promise.all([
           getWorkspaceSummary(current.organization_id),
@@ -333,10 +335,10 @@ function App() {
     }
     return <DocumentationCenter centerId={documentationCenter} membership={membership} />;
   }
+  if (isSaasAdminPath(window.location.pathname) && (!session || !membershipLoaded || !membership || membership.role !== "super_admin" || !membership.is_active)) {
+    return <PublicLoading message="Verifying platform administrator access" />;
+  }
   if (isDomainAdminPath(window.location.pathname)) {
-    if (!session || !membershipLoaded || !membership || membership.role !== "super_admin" || !membership.is_active) {
-      return <PublicLoading message="Verifying platform administrator access" />;
-    }
     return window.location.pathname === "/saas/admin/domains/links"
       ? <DomainLinksView />
       : <DomainManagementView onOpenLinks={() => window.location.assign("/saas/admin/domains/links")} />;
@@ -353,7 +355,7 @@ function App() {
         <div className="brand"><div className="brand-mark">A</div><span>adometa</span><button className="close-menu" aria-label="Close navigation" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
         <div className="workspace-switcher"><div className="workspace-avatar">{workspaceSummary?.organizationName?.slice(0, 2).toUpperCase() || "OR"}</div><div><strong>{workspaceSummary?.organizationName || "Organization"}</strong><small>Workspace</small></div><ChevronDown size={16} /></div>
         <p className="nav-heading">WORKSPACE</p>
-        {membership?.role === "super_admin" && <nav><button className={`nav-item ${view === "Platform" ? "active" : ""}`} onClick={() => setView("Platform")}><ShieldCheck size={18} /><span>Platform administration</span></button><a className="nav-item" href="/saas/admin/domains"><Globe2 size={18} /><span>Domain management</span></a><button className={`nav-item ${view === "Payment Gateway" ? "active" : ""}`} onClick={() => setView("Payment Gateway")}><CreditCard size={18} /><span>Payment Gateway</span></button><button className={`nav-item ${view === "Growth Tools" ? "active" : ""}`} onClick={() => setView("Growth Tools")}><Wrench size={18} /><span>Growth Tools</span></button><button className={`nav-item ${view === "License Register" ? "active" : ""}`} onClick={() => setView("License Register")}><ShieldCheck size={18} /><span>License register</span></button><button className={`nav-item ${view === "Database Monitoring" ? "active" : ""}`} onClick={() => setView("Database Monitoring")}><Database size={18} /><span>Database monitoring</span></button></nav>}
+        {membership?.role === "super_admin" && <nav><button className={`nav-item ${view === "Platform" ? "active" : ""}`} onClick={() => { setView("Platform"); window.history.replaceState({}, "", "/super-admin/dashboard"); }}><ShieldCheck size={18} /><span>Platform administration</span></button><a className={`nav-item ${view === "Users" ? "active" : ""}`} href="/saas/admin/users"><UserPlus size={18} /><span>Users</span></a><a className="nav-item" href="/saas/admin/domains"><Globe2 size={18} /><span>Domain management</span></a><button className={`nav-item ${view === "Growth Tools" ? "active" : ""}`} onClick={() => setView("Growth Tools")}><Wrench size={18} /><span>Growth Tools</span></button><button className={`nav-item ${view === "License Register" ? "active" : ""}`} onClick={() => setView("License Register")}><ShieldCheck size={18} /><span>License register</span></button><button className={`nav-item ${view === "Database Monitoring" ? "active" : ""}`} onClick={() => setView("Database Monitoring")}><Database size={18} /><span>Database monitoring</span></button></nav>}
         <nav>{navItems.filter(({ label }) => membership?.role !== "super_admin" && (label !== "Teams" || membership?.role === "company_owner" || membership?.role === "organization_admin" || membership?.role === "manager")).map(({ label, icon: Icon }) => <button key={label} className={view === label ? "nav-item active" : "nav-item"} onClick={() => { setView(label); setSidebarOpen(false); }}><Icon size={18} /><span>{label}</span>{label === "Leads" && <em>{isSupabaseConfigured ? leads.length : "Demo"}</em>}</button>)}</nav>
         <p className="nav-heading">MANAGE</p>
         <nav>
@@ -377,8 +379,8 @@ function App() {
         <header className="topbar"><button className="mobile-menu" aria-label="Open navigation" aria-expanded={sidebarOpen} aria-controls="workspace-navigation" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>{view}</strong></div><div className="topbar-actions"><div className="global-search"><Search size={17} /><input placeholder="Search anything..." value={query} onChange={(e) => setQuery(e.target.value)} /><kbd>⌘ K</kbd></div><a className="icon-button" aria-label="Help center" title="Help center" href={membership?.role === "super_admin" ? "/saas/admin/docs" : membership?.role === "company_owner" || membership?.role === "organization_admin" ? "/admin/docs" : "/docs"}><CircleHelp size={19} /></a><button className="icon-button notification" aria-label={`Notifications${unreadNotifications ? ` (${unreadNotifications} unread)` : ""}`} onClick={() => setView("Notifications")}><Bell size={19} />{unreadNotifications > 0 && <span className="notification-count">{unreadNotifications}</span>}</button>{membership && <ProfileMenu session={session} membership={membership} organizationName={workspaceSummary?.organizationName || ""} organizationIsActive={workspaceSummary?.organizationIsActive ?? null} teamNames={teamNames} onLogout={handleLogout} />}</div></header>
         <div className="page-content">
           {view === "Platform" && membership && <PlatformAdminView membership={membership} onNotify={notify} />}
+          {view === "Users" && membership?.role === "super_admin" && <PlatformUserManagementView onNotify={notify} onOpenCompanies={() => { setView("Platform"); window.history.replaceState({}, "", "/super-admin/dashboard"); }} />}
           {view === "Database Monitoring" && membership && <DatabaseMonitoringView membership={membership} session={session ?? null} onNotify={notify} />}
-          {view === "Payment Gateway" && membership && <PaymentGatewayView membership={membership} onNotify={notify} />}
           {view === "Growth Tools" && membership && <GrowthToolsView membership={membership} />}
           {view === "License Register" && membership && <LicenseRegisterView membership={membership} />}
           {view === "Automation" && membership && <AutomationView membership={membership} onNotify={notify} />}

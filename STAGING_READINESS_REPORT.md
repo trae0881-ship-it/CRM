@@ -53,19 +53,7 @@ Required server-side names are listed in [SUPABASE_STAGING_SETUP.md](./SUPABASE_
 
 ## Payment safety
 
-Local source inspection and tests confirm:
-
-- `YOUPI_ENABLED` and `YOUPI_API_CONTRACT_CONFIRMED` must explicitly be `true`.
-- Checkout amount is read from the active subscription plan, not trusted from the browser.
-- Organization role and authenticated identity are checked server-side.
-- Payment order creation requires an organization-scoped idempotency key.
-- Webhook raw-body HMAC verification and unique delivery IDs prevent unauthenticated/replayed processing.
-- Amount and currency mismatches are rejected.
-- Subscription activation occurs only for a verified `RECONCILED` UPI event with reconciled settlement state.
-- QR/manual receipts remain review records and do not automatically approve a payment.
-- Production mode remains disabled by default (`YOUPI_TEST_MODE=true`, `YOUPI_ENABLED=false` in the example).
-
-Staging must still prove these behaviors against a real database and provider sandbox. No payment was enabled or tested.
+Provider checkout, configuration, and webhook handlers have been removed. Generic transaction history, payment-state history and QR-review records remain. The forward migration has not been applied or tested in staging. No payment provider is deployed or verified.
 
 ## Exact next action
 

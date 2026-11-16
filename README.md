@@ -4,7 +4,7 @@ Adometa is a responsive CRM foundation for lead management, sales pipeline visib
 
 ## Current phase
 
-Phase 4 includes tenant-aware administration, immutable lead operations, secure exports, and provider-neutral integration boundaries. The experimental YouPI-PG adapter adds server-side checkout creation, signed webhook verification, immutable payment ledger records, and explicit UPI reconciliation gating. It is not represented as production-ready without real merchant credentials, verified webhook delivery, and bank-statement reconciliation.
+Phase 4 includes tenant-aware administration, immutable lead operations, secure exports, generic billing records and payment review history. No payment-provider checkout or webhook integration is currently included.
 Phase 6 adds tenant-scoped assignment rules, explainable lead scoring, configurable pipeline/workflow schemas, idempotent automation event claims, and an organization Automation control center. Workers and live provider integrations remain subject to staging deployment and credentials.
 
 ## Run locally
@@ -42,7 +42,6 @@ The project has been validated with Node.js/npm in the development workspace. Su
 - [Database plan](./docs/DATABASE.md)
 - [Security plan](./docs/SECURITY.md)
 - [Integration setup](./docs/INTEGRATIONS.md)
-- [YouPI-PG merchant guide](./docs/YOUPI-PG.md)
 - [Open-source license register](./docs/LICENSES.md)
 - [Deployment requirements](./docs/DEPLOYMENT.md)
 - [Testing plan](./docs/TESTING.md)

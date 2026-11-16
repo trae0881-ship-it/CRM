@@ -37,7 +37,6 @@ The public contact endpoint uses only the existing API and Supabase server crede
 - Google Sheets: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_SHEETS_REDIRECT_URI`, `GOOGLE_SHEETS_TOKEN_ENCRYPTION_KEY`; optionally `GOOGLE_SHEETS_SYNC_CRON_SECRET`.
 - Meta webhook: `META_APP_SECRET`, `META_VERIFY_TOKEN`, optional `META_GRAPH_API_VERSION`. Do not enable before a provider test and deployment review.
 - One-time Super Admin bootstrap: `SUPER_ADMIN_BOOTSTRAP_SECRET`; remove/rotate after bootstrap.
-- YouPI: `YOUPI_API_URL`, `YOUPI_CREATE_PAYMENT_PATH`, `YOUPI_MERCHANT_ID`, `YOUPI_WEBHOOK_SECRET`, `YOUPI_RETURN_URL`, `YOUPI_API_CONTRACT_CONFIRMED`, `YOUPI_ENABLED`. Keep both activation flags false; production payments are not approved.
 
 Hosted Supabase functions may supply `SUPABASE_URL` and service-role credentials automatically; verify the deployed function environment rather than assuming this.
 

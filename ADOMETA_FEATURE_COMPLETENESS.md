@@ -60,7 +60,7 @@ Audit date: 2026-11-14
 | Manual/scheduled sync and deduplication | BLOCKED | Edge Function and schema exist; no deployed scheduler or live Google test. |
 | Sync history/row errors/disconnect/isolation | PARTIAL | Backend stores run details and checks membership; UI only shows aggregates; live isolation untested. |
 | Meta Lead Ads | BLOCKED | Webhook ingestion foundation exists; keep marked Coming Soon unless configuration and real verification are completed. |
-| YouPI payment creation/signature/idempotency | BLOCKED | Edge Function, migration and local tests exist; contract/credentials/staging are absent and enablement must stay off. |
+| Payment provider checkout | NOT IMPLEMENTED | Provider-specific checkout and webhook code has been removed. Generic billing and historical payment records remain. |
 | QR/manual payment review | PARTIAL | Pending/review schema and local test exist; live admin review/audit flow remains unverified. |
 
 ## Security and verification

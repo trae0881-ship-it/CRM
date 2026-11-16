@@ -50,7 +50,7 @@ Highest-priority user-facing defects found before local remediation:
 
 - Google Sheets has OAuth state, server-side token encryption, organization checks, scheduled/manual sync endpoints, source-row identity and sync run records. Deployment, Google credentials and cross-tenant tests remain external blockers.
 - Meta webhook ingestion code exists; organization-side connection/configuration UI is not established, so Meta must remain Coming Soon in product messaging.
-- YouPI checkout is explicitly gated by server secrets, an approved API contract and enablement flags. Payment activation is tied to reconciliation logic. QR/manual review has schema/test evidence and should remain non-activating absent review.
+- No payment provider checkout is currently implemented. Generic billing, historical payment records, and manual QR-review records remain; a plan assignment does not confirm payment.
 - None of the payment or Google provider flows have been verified against live staging credentials.
 
 ### Responsive and accessibility

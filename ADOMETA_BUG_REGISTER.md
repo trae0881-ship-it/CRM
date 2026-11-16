@@ -21,7 +21,7 @@ Audit date: 2026-11-14. Severity reflects observed implementation risk, not conf
 | A11Y-001 | Medium | Mobile navigation | Drawer lacked a backdrop, Escape handling and explicit mobile logout entry; focus containment is also absent. | Backdrop, Escape close and explicit logout fixed locally. Focus containment and authenticated browser verification remain open. |
 | DATA-001 | Medium | Lead sync | Service-level search builds a PostgREST `.or()` filter using direct user input; punctuation/query syntax should be validated/escaped before use. | Confirmed by source; production behavior not tested. |
 | OPS-001 | Low | Feedback | Toast timers are not cancelled, so an earlier timer may dismiss a newer notification. | Confirmed by implementation pattern. |
-| EXT-001 | Blocked | External services | No live Google, Meta, YouPI, email, telephony, staging, or Supabase verification environment is available. | Environment blocker, not inferred as code failure. |
+| EXT-001 | Blocked | External services | No live Google, Meta, email, telephony, staging, or Supabase verification environment is available. | Environment blocker, not inferred as code failure. |
 
 ## Audit verification results
 

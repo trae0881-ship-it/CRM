@@ -38,8 +38,8 @@ Work should remain additive and preserve existing CRM data, Google Sheets founda
 
 1. Complete Sheets resource selection, OAuth callback UX, mapping validation, scheduler, retries, row-level errors and disconnect/token revocation.
 2. Retain Meta as Coming Soon until webhook/configuration and provider review are complete.
-3. Keep YouPI and QR production disabled until current provider docs, credentials, staging and reconciliation evidence are approved.
-4. Test duplicate deliveries/idempotency, invalid signatures, amount mismatch, payment lifecycle and audit logs.
+3. Keep payment processing disabled until a provider is separately selected, reviewed, and approved for staging.
+4. Preserve generic billing and payment history; test authorization and QR review without treating uploaded receipts as settlement.
 
 ## Phase 6 — Reporting and product completion (P2)
 

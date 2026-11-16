@@ -4,7 +4,7 @@ import { ENTITY_TABLES, sourceRecordKey, stripSecrets } from "../schemas/entitie
 
 const GLOBAL_ENTITIES = new Set([
   "profiles", "meta_forms", "webhook_events", "subscription_plans",
-  "payment_gateway_configs", "payment_webhook_deliveries", "pipeline_stages", "contact_submissions",
+  "payment_webhook_deliveries", "pipeline_stages", "contact_submissions",
 ]);
 const GLOBAL_SCOPE = "00000000-0000-0000-0000-000000000000";
 
@@ -19,8 +19,7 @@ function stable(value) {
 function ordered(query, entityType) {
   const keys = entityType === "organization_members" ? ["organization_id", "user_id"]
     : entityType === "team_members" ? ["organization_id", "team_id", "user_id"]
-      : entityType === "payment_gateway_configs" ? ["provider"]
-        : ["id"];
+      : ["id"];
   return keys.reduce((current, key) => current.order(key), query);
 }
 

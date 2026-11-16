@@ -22,4 +22,4 @@ For every workflow, create a record as Alpha, reload, query it in a fresh authen
 
 ## External integrations
 
-YouPI-PG, Meta, WhatsApp, telephony and Growth Tools have no configured credentials or deployed endpoints. Their live workflows are skipped, not passed.
+Meta, WhatsApp, telephony and Growth Tools have no configured credentials or deployed endpoints. Their live workflows are skipped, not passed. No payment-provider checkout endpoint is retained.

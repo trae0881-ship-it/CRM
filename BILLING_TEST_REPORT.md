@@ -1,19 +1,16 @@
-# Billing test report
+# Billing and payment verification
 
-| Scenario | Expected result | Actual result | Status | Evidence |
-|---|---|---|---|---|
-| YouPI credentials unavailable | Gateway fails closed | No staging credentials available | BLOCKED | No Supabase staging configuration |
-| Sandbox connection | Verified provider response | Not attempted | BLOCKED | Provider contract unavailable |
-| Payment order creation | Server plan amount and INR only | Static safeguards present; live call unavailable | BLOCKED | `youpi-create-payment` |
-| Successful verified payment | Reconciled UPI may activate subscription | Live webhook unavailable | BLOCKED | `youpi-webhook` |
-| Failed/pending/cancelled/expired | No activation | Static state handling present; live test unavailable | BLOCKED | YouPI tests |
-| Invalid signature | 401 and no payment update | Static test passed | PASS (LOCAL) | `tests/youpi-payment.test.mjs` |
-| Duplicate webhook | No duplicate processing | Static test passed | PASS (LOCAL) | Unique delivery ID logic |
-| QR generation | Provider-backed amount/reference | No verified QR provider | BLOCKED | `QR_PAYMENT_VERIFICATION.md` |
-| QR success/expiry | Server confirmation only | Not attempted | BLOCKED | No provider contract |
-| Incorrect amount | Reject and retain ledger state | Static guard present | PASS (LOCAL) | Webhook amount comparison |
-| Cross-tenant payment access | Denied | RLS not live-tested | BLOCKED | Staging identities unavailable |
-| Subscription activation | Only verified reconciliation | Static logic present | PASS (LOCAL) | UPI settlement condition |
-| MRR/history | Verified database records only | Live records unavailable | BLOCKED | No staging connection |
+## Current status
 
-Mocked/static tests are not presented as live payment integration tests.
+Adometa retains plan/subscription administration, generic payment-history records, state history, and manual QR-review records. No payment-provider checkout, provider configuration, or payment webhook integration is included.
+
+| Scenario | Current result | Status |
+|---|---|---|
+| Plan assignment | Administrative subscription update only; it does not collect or confirm payment | Locally implemented; staging unverified |
+| Generic historical payment records | Preserved by schema retirement migration | Migration not applied |
+| QR/manual review | Review records remain separate from settlement | Production workflow not verified |
+| Provider checkout and webhook | No active implementation | Not implemented |
+| Cross-tenant payment access | Existing RLS policies remain in place | Staging identities unavailable |
+| Reconciliation or MRR from payments | No live provider settlement source | Not verified |
+
+No live billing or payment-provider tests were run. Do not treat a frontend build, plan assignment, or uploaded receipt as proof of payment.

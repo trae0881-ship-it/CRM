@@ -8,6 +8,7 @@ import { getSupabaseAdmin, verifyPlatformSuperAdmin } from "../config/supabase.m
 import { countSynchronizedByOrganization, countSynchronizedRecords, getMySqlSyncSummary } from "../repositories/records.mjs";
 import { normalizeHostname, verifyDomainRecords } from "./domain-verification.mjs";
 import { createRateLimiter, publicPricingPlan, validateContactPayload } from "./public-website.mjs";
+import { parsePlatformUserFilters, validatePlatformUserEdit, validatePlatformUserInput } from "./platform-users.mjs";
 import { reconcileOrganization } from "../sync/reconcile.mjs";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -207,6 +208,271 @@ async function handleDomainRequest(request, response, url, origin) {
     if (error?.code === "23505") return json(response, 409, { error: "That hostname is already registered." }, origin);
     const status = error?.message === "invalid_json" || error?.message === "request_too_large" ? 400 : 503;
     return json(response, status, { error: status === 400 ? "Invalid request body." : "Domain operation failed.", errorCode: safeCode(error) }, origin);
+  }
+}
+
+function platformUserRow(row) {
+  return {
+    userId: row.user_id,
+    email: row.email,
+    fullName: row.full_name,
+    phone: row.phone,
+    organizationId: row.organization_id,
+    organizationName: row.organization_name,
+    role: row.role,
+    membershipActive: row.membership_is_active,
+    status: row.account_status,
+    isBanned: row.is_banned,
+    emailConfirmedAt: row.email_confirmed_at,
+    createdAt: row.auth_created_at,
+    membershipCreatedAt: row.membership_created_at,
+    lastSignInAt: row.last_sign_in_at,
+  };
+}
+
+async function validatePlatformCompany(admin, companyId, isActive) {
+  const { data: company, error: companyError } = await admin.from("organizations")
+    .select("id,is_active,slug").eq("id", companyId).maybeSingle();
+  if (companyError) throw companyError;
+  if (!company || !company.is_active || company.slug.startsWith("adometa-platform-")) {
+    return { status: 400, error: "Choose an active customer company." };
+  }
+  if (!isActive) return null;
+
+  const { data: subscription, error: subscriptionError } = await admin.from("subscriptions")
+    .select("subscription_plans(max_users)")
+    .eq("organization_id", companyId)
+    .in("status", ["trialing", "active"])
+    .maybeSingle();
+  if (subscriptionError) throw subscriptionError;
+  const plan = Array.isArray(subscription?.subscription_plans)
+    ? subscription.subscription_plans[0]
+    : subscription?.subscription_plans;
+  const maxUsers = plan?.max_users;
+  if (maxUsers === null || maxUsers === undefined) return null;
+
+  const { count, error: countError } = await admin.from("organization_members")
+    .select("user_id", { count: "exact", head: true })
+    .eq("organization_id", companyId)
+    .eq("is_active", true);
+  if (countError) throw countError;
+  if ((count ?? 0) >= Number(maxUsers)) {
+    return { status: 409, error: "The selected company has reached its active user limit." };
+  }
+  return null;
+}
+
+async function isLastActivePlatformAdmin(admin, targetUserId, targetAccount) {
+  const { data: memberships, error } = await admin.from("organization_members")
+    .select("user_id").eq("role", "super_admin").eq("is_active", true);
+  if (error) throw error;
+  const adminIds = new Set((memberships ?? []).map((membership) => membership.user_id));
+  if (!adminIds.has(targetUserId)) return false;
+  const targetIsBanned = targetAccount.banned_until && new Date(targetAccount.banned_until).getTime() > Date.now();
+  if (targetIsBanned) return false;
+
+  let activeAdmins = 0;
+  for (const userId of adminIds) {
+    let account = targetAccount;
+    if (userId !== targetUserId) {
+      const { data, error: accountError } = await admin.auth.admin.getUserById(userId);
+      if (accountError) throw accountError;
+      account = data?.user;
+    }
+    if (account && (!account.banned_until || new Date(account.banned_until).getTime() <= Date.now())) {
+      activeAdmins += 1;
+    }
+  }
+  return activeAdmins <= 1;
+}
+
+async function platformUserRequest(request, response, url, origin) {
+  const access = await platformActor(request);
+  if (access.response) return json(response, access.response.status, access.response.body, origin);
+
+  const admin = getSupabaseAdmin();
+  const path = url.pathname;
+  try {
+    if (path === "/platform/users" && request.method === "GET") {
+      const filters = parsePlatformUserFilters(url.searchParams);
+      if (filters.error) return json(response, 400, { error: filters.error }, origin);
+      const { value } = filters;
+      const { data, error } = await admin.rpc("platform_list_users", {
+        actor_user: access.actor.userId,
+        search_term: value.search,
+        company_filter: value.companyId,
+        role_filter: value.role,
+        status_filter: value.status,
+        page_number: value.page,
+        page_size: value.pageSize,
+      });
+      if (error) throw error;
+      const users = (data ?? []).map(platformUserRow);
+      return json(response, 200, {
+        users,
+        totalCount: Number(data?.[0]?.total_count ?? 0),
+        page: value.page,
+        pageSize: value.pageSize,
+      }, origin);
+    }
+
+    if (path === "/platform/users" && request.method === "POST") {
+      const body = await readJson(request);
+      const validation = validatePlatformUserInput(body);
+      if (validation.error) return json(response, 400, { error: validation.error }, origin);
+      const value = validation.value;
+
+      const companyIssue = await validatePlatformCompany(admin, value.companyId, value.isActive);
+      if (companyIssue) return json(response, companyIssue.status, { error: companyIssue.error }, origin);
+
+      const { data: matches, error: lookupError } = await admin.rpc("platform_find_auth_user_by_email", {
+        actor_user: access.actor.userId,
+        target_email: value.email,
+      });
+      if (lookupError) throw lookupError;
+      const existingUser = matches?.[0];
+      if (existingUser) {
+        const { error } = await admin.rpc("platform_assign_user_membership", {
+          actor_user: access.actor.userId,
+          target_user: existingUser.user_id,
+          target_organization: value.companyId,
+          target_role: value.role,
+          target_active: value.isActive,
+          target_full_name: value.fullName,
+          target_phone: value.phone,
+        });
+        if (error?.code === "23505") return json(response, 409, { error: "This user is already assigned to the selected company." }, origin);
+        if (error) throw error;
+        return json(response, 200, { userId: existingUser.user_id, assignedExistingUser: true }, origin);
+      }
+
+      let invitedUser;
+      let authError;
+      if (value.sendInvitation) {
+        const inviteOptions = { data: { full_name: value.fullName } };
+        const { data: domainConfig, error: domainError } = await admin.rpc("get_public_platform_domain_config");
+        if (domainError) {
+          console.warn("Canonical invitation redirect unavailable; Supabase Site URL will be used.");
+        } else if (typeof domainConfig?.canonicalHostname === "string" && domainConfig.canonicalHostname) {
+          inviteOptions.redirectTo = `https://${domainConfig.canonicalHostname}/`;
+        }
+        ({ data: invitedUser, error: authError } = await admin.auth.admin.inviteUserByEmail(value.email, inviteOptions));
+      } else {
+        ({ data: invitedUser, error: authError } = await admin.auth.admin.createUser({
+          email: value.email,
+          email_confirm: false,
+          user_metadata: { full_name: value.fullName },
+        }));
+      }
+      if (authError || !invitedUser?.user) {
+        const duplicate = authError?.code === "email_exists" || /already (?:registered|exists)/i.test(authError?.message ?? "");
+        return json(response, duplicate ? 409 : 400, {
+          error: duplicate
+            ? "An account with this email already exists. Refresh the user list and assign that account to the company."
+            : value.sendInvitation
+              ? "The invitation could not be sent. Check Supabase Auth email configuration and try again."
+              : "The account could not be created.",
+        }, origin);
+      }
+
+      const newUserId = invitedUser.user.id;
+      const { error: membershipError } = await admin.rpc("platform_assign_user_membership", {
+        actor_user: access.actor.userId,
+        target_user: newUserId,
+        target_organization: value.companyId,
+        target_role: value.role,
+        target_active: value.isActive,
+        target_full_name: value.fullName,
+        target_phone: value.phone,
+      });
+      if (membershipError) {
+        const { error: cleanupError } = await admin.auth.admin.deleteUser(newUserId);
+        if (cleanupError) {
+          console.error("New Auth account cleanup failed after membership creation error:", safeCode(cleanupError));
+        }
+        if (membershipError.code === "23514") return json(response, 409, { error: "The selected company has reached its active user limit." }, origin);
+        if (membershipError.code === "23505") return json(response, 409, { error: "This user is already assigned to the selected company." }, origin);
+        throw membershipError;
+      }
+      return json(response, 201, {
+        userId: newUserId,
+        assignedExistingUser: false,
+        invitationSent: value.sendInvitation,
+      }, origin);
+    }
+
+    const accountRoute = /^\/platform\/users\/([0-9a-f-]{36})\/account-status$/.exec(path);
+    if (accountRoute && request.method === "PATCH") {
+      if (!uuidPattern.test(accountRoute[1])) return json(response, 400, { error: "Invalid user identifier." }, origin);
+      const body = await readJson(request);
+      if (typeof body.accountActive !== "boolean") {
+        return json(response, 400, { error: "Choose whether the account should be active." }, origin);
+      }
+      const targetUserId = accountRoute[1];
+      const { data: userResult, error: userError } = await admin.auth.admin.getUserById(targetUserId);
+      if (userError || !userResult.user) return json(response, 404, { error: "User account was not found." }, origin);
+      if (!body.accountActive && targetUserId === access.actor.userId) {
+        return json(response, 409, { error: "You cannot deactivate your own Super Admin account." }, origin);
+      }
+
+      if (!body.accountActive) {
+        if (await isLastActivePlatformAdmin(admin, targetUserId, userResult.user)) {
+          return json(response, 409, { error: "The last active Super Admin account cannot be deactivated." }, origin);
+        }
+      }
+
+      const { error: updateError } = await admin.auth.admin.updateUserById(targetUserId, {
+        ban_duration: body.accountActive ? "none" : "876000h",
+      });
+      if (updateError) throw updateError;
+      const { error: auditError } = await admin.from("audit_logs").insert({
+        organization_id: null,
+        actor_id: access.actor.userId,
+        action: body.accountActive ? "platform_user_account_activated" : "platform_user_account_deactivated",
+        entity_type: "auth_user",
+        entity_id: targetUserId,
+        metadata: {},
+      });
+      if (auditError) throw auditError;
+      return json(response, 200, { userId: targetUserId, accountActive: body.accountActive }, origin);
+    }
+
+    const membershipRoute = /^\/platform\/users\/([0-9a-f-]{36})\/memberships\/([0-9a-f-]{36})$/.exec(path);
+    if (membershipRoute && request.method === "PATCH") {
+      const [, targetUserId, organizationId] = membershipRoute;
+      if (!uuidPattern.test(targetUserId) || !uuidPattern.test(organizationId)) {
+        return json(response, 400, { error: "Invalid user or company identifier." }, origin);
+      }
+      const body = await readJson(request);
+      const validation = validatePlatformUserEdit(body);
+      if (validation.error) return json(response, 400, { error: validation.error }, origin);
+      const value = validation.value;
+      const companyIssue = await validatePlatformCompany(admin, organizationId, value.isActive);
+      if (companyIssue) return json(response, companyIssue.status, { error: companyIssue.error }, origin);
+      const { error } = await admin.rpc("platform_update_user_membership", {
+        actor_user: access.actor.userId,
+        target_user: targetUserId,
+        target_organization: organizationId,
+        target_role: value.role,
+        target_active: value.isActive,
+        target_full_name: value.fullName,
+        target_phone: value.phone,
+      });
+      if (error?.code === "23514") return json(response, 409, { error: "The selected company has reached its active user limit." }, origin);
+      if (error?.message?.includes("last active Company Owner")) {
+        return json(response, 409, { error: "The last active Company Owner cannot be deactivated or demoted." }, origin);
+      }
+      if (error) throw error;
+      return json(response, 200, { userId: targetUserId, organizationId }, origin);
+    }
+
+    return json(response, 404, { error: "Not found" }, origin);
+  } catch (error) {
+    const status = error?.message === "invalid_json" || error?.message === "request_too_large" ? 400 : 503;
+    return json(response, status, {
+      error: status === 400 ? "Invalid request body." : "User management operation failed.",
+      errorCode: safeCode(error),
+    }, origin);
   }
 }
 
@@ -411,6 +677,9 @@ export function createDatabaseServer() {
       }
     }
     if (url.pathname === "/domains" || url.pathname.startsWith("/domains/")) return handleDomainRequest(request, response, url, corsOrigin);
+    if (url.pathname === "/platform/users" || url.pathname.startsWith("/platform/users/")) {
+      return platformUserRequest(request, response, url, corsOrigin);
+    }
     if (request.method === "GET" && url.pathname === "/health/live") return json(response, 200, { status: "ok" }, corsOrigin);
 
     if (url.pathname === "/health/db" && request.method === "GET") {

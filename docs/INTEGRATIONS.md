@@ -33,8 +33,8 @@ The current repository does not include Meta credentials, a connected Page, or a
 
 No endpoint is inferred where official documentation is unavailable. Each adapter must log a correlation ID and sanitized outcome only; tokens, passwords and full provider payload secrets must not be logged.
 
-YouPI-PG has a documented REST contract and is implemented experimentally in `supabase/functions/youpi-create-payment` and `supabase/functions/youpi-webhook`. See [YOUPI-PG.md](./YOUPI-PG.md) for deployment and settlement requirements. Live payment processing is not claimed.
+Adometa currently has no payment-provider checkout or payment webhook integration. Plan/subscription administration is separate from collecting or verifying payment.
 
 Phase 7 customer and sales operations use tenant-scoped database repositories. Calling and WhatsApp remain provider-neutral until official credentials and webhook contracts are configured.
 
-Phase 8 connection status: Meta, WhatsApp, telephony, YouPI-PG and all Growth Tools are not live in this workspace. Required credentials, deployed endpoints and authenticated health checks are documented but absent.
+Phase 8 connection status: Meta, WhatsApp, telephony and all Growth Tools are not live in this workspace. Required credentials, deployed endpoints and authenticated health checks are documented but absent.
