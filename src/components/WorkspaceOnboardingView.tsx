@@ -23,8 +23,17 @@ const formatPlanPrice = (plan: AvailableSubscriptionPlan) => {
   return `${currency}${Number(plan.price_monthly).toFixed(2)} / month`;
 };
 
+function getLoadErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+  return fallback;
+}
+
 export function WorkspaceOnboardingView({ onRefreshMembership, onSignOut, onNotify }: Props) {
   const [plans, setPlans] = useState<AvailableSubscriptionPlan[]>([]);
+  const [plansLoadFailed, setPlansLoadFailed] = useState(false);
   const [requests, setRequests] = useState<WorkspaceRequest[]>([]);
   const [workspaceStatus, setWorkspaceStatus] = useState<WorkspaceAccessStatus | null>(null);
   const [email, setEmail] = useState("");
@@ -41,26 +50,43 @@ export function WorkspaceOnboardingView({ onRefreshMembership, onSignOut, onNoti
   const load = async () => {
     setLoading(true);
     setErrorMessage("");
-    try {
-      const [availablePlans, ownRequests, accessStatus, userResult] = await Promise.all([
-        listAvailableSubscriptionPlans(),
-        listMyWorkspaceRequests(),
-        getMyWorkspaceAccessStatus(),
-        supabase?.auth.getUser(),
-      ]);
-      setPlans(availablePlans);
-      setRequests(ownRequests);
-      setWorkspaceStatus(accessStatus);
-      if (availablePlans.length && !planId) setPlanId(availablePlans[0].id);
-      const user = userResult?.data.user;
+    const [plansResult, requestsResult, accessResult, userResult] = await Promise.allSettled([
+      listAvailableSubscriptionPlans(),
+      listMyWorkspaceRequests(),
+      getMyWorkspaceAccessStatus(),
+      Promise.resolve(supabase?.auth.getUser()),
+    ]);
+    const errors: string[] = [];
+
+    if (plansResult.status === "fulfilled") {
+      setPlans(plansResult.value);
+      setPlansLoadFailed(false);
+      if (plansResult.value.length && !planId) setPlanId(plansResult.value[0].id);
+    } else {
+      setPlans([]);
+      setPlansLoadFailed(true);
+      errors.push(`Subscription plans: ${getLoadErrorMessage(plansResult.reason, "could not be loaded")}`);
+    }
+
+    if (requestsResult.status === "fulfilled") setRequests(requestsResult.value);
+    else errors.push(`Workspace requests: ${getLoadErrorMessage(requestsResult.reason, "could not be loaded")}`);
+
+    if (accessResult.status === "fulfilled") setWorkspaceStatus(accessResult.value);
+    else errors.push(`Workspace access: ${getLoadErrorMessage(accessResult.reason, "could not be checked")}`);
+
+    if (userResult.status === "fulfilled" && userResult.value?.error) {
+      errors.push(`Account details: ${getLoadErrorMessage(userResult.value.error, "could not be loaded")}`);
+    } else if (userResult.status === "rejected") {
+      errors.push(`Account details: ${getLoadErrorMessage(userResult.reason, "could not be loaded")}`);
+    } else {
+      const user = userResult.status === "fulfilled" ? userResult.value?.data.user : null;
       setEmail(user?.email || "");
       setFullName(String(user?.user_metadata?.full_name || ""));
       setPhone((current) => current || String(user?.user_metadata?.phone || ""));
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Workspace setup could not be loaded.");
-    } finally {
-      setLoading(false);
     }
+
+    setErrorMessage(errors.join(". "));
+    setLoading(false);
   };
   useEffect(() => { void load(); }, []);
 
@@ -115,7 +141,7 @@ export function WorkspaceOnboardingView({ onRefreshMembership, onSignOut, onNoti
       <h1>Set up your Adometa workspace</h1>
       <p className="muted">Submit your company details and plan request. A platform administrator must approve access before CRM data is available.</p>
       {loading ? <div className="inline-loading">Loading available plans and request status...</div> : <>
-        {errorMessage && <div className="form-error" role="alert">{errorMessage}</div>}
+        {errorMessage && <div className="form-error" role="alert"><span>{errorMessage}</span><button type="button" className="text-button" onClick={() => void load()}>Retry</button></div>}
           {workspaceStatus && <div className="request-state info-state">
             <strong>{workspaceStatus.organization_name}: {workspaceStatus.subscription_status || workspaceStatus.approval_status}</strong>
             <span>{workspaceStatus.organization_active
@@ -154,9 +180,9 @@ export function WorkspaceOnboardingView({ onRefreshMembership, onSignOut, onNoti
             <option value="" disabled>Select a plan</option>
             {plans.map((plan) => <option value={plan.id} key={plan.id}>{plan.name} — {formatPlanPrice(plan)}</option>)}
           </select></label>
-          {plans.length === 0 && <p className="form-error">No active plans are available. Contact Adometa support.</p>}
+          {!plansLoadFailed && plans.length === 0 && <p className="form-error">No active plans are available. Contact Adometa support.</p>}
           <label>Additional information (optional)<textarea maxLength={2000} value={additionalInformation} onChange={(event) => setAdditionalInformation(event.target.value)} /></label>
-          <button className="button primary" disabled={busy || plans.length === 0}>{busy ? "Submitting..." : "Submit for approval"}</button>
+          <button className="button primary" disabled={busy || plans.length === 0 || plansLoadFailed}>{busy ? "Submitting..." : "Submit for approval"}</button>
         </form>}
         {requests.length > 1 && <div className="request-history">
           <h2>Request history</h2>
