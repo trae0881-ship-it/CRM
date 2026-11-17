@@ -2,6 +2,7 @@ import { supabase } from "../lib/supabase";
 import type { UserRole } from "../types/database";
 
 export type Membership = { organization_id: string; user_id: string; role: UserRole; is_active: boolean };
+export type MembershipOption = Membership & { organization_name: string };
 export type Team = { id: string; name: string; manager_id: string | null; is_active: boolean; created_at: string };
 export type OrganizationMember = { organization_id: string; user_id: string; role: UserRole; is_active: boolean; profiles: { full_name: string } | null };
 export type OrganizationProfile = { id: string; name: string; slug: string; is_active: boolean; created_at: string };
@@ -46,16 +47,28 @@ const requireClient = () => {
 };
 
 export async function getCurrentMembership(): Promise<Membership | null> {
-  const client = requireClient();
-  const { data: userData, error: userError } = await client.auth.getUser();
-  if (userError) throw userError;
-  const { data, error } = await client.from("organization_members").select("organization_id,user_id,role,is_active").eq("user_id", userData.user.id).eq("is_active", true);
-  if (error) throw error;
-  const memberships = (data ?? []) as Membership[];
+  const memberships = await listCurrentMemberships();
   const platformMembership = memberships.find((membership) => membership.role === "super_admin");
   if (platformMembership) return platformMembership;
   if (memberships.length > 1) throw new Error("Multiple active organization memberships were found.");
   return memberships[0] ?? null;
+}
+
+export async function listCurrentMemberships(): Promise<MembershipOption[]> {
+  const client = requireClient();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  if (!userData.user) throw new Error("The authenticated user could not be resolved.");
+  const { data, error } = await client.from("organization_members")
+    .select("organization_id,user_id,role,is_active,organizations(name)")
+    .eq("user_id", userData.user.id)
+    .eq("is_active", true);
+  if (error) throw error;
+  return ((data ?? []) as Array<Membership & { organizations: { name: string } | { name: string }[] | null }>)
+    .map(({ organizations, ...membership }) => ({
+      ...membership,
+      organization_name: Array.isArray(organizations) ? organizations[0]?.name || "Organization" : organizations?.name || "Organization",
+    }));
 }
 
 export async function getOrganizationProfile(organizationId: string): Promise<OrganizationProfile> {

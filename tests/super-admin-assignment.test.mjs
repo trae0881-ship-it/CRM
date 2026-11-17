@@ -20,7 +20,10 @@ test("Super Admin migration is bound to the existing Auth user and is repeat-saf
 
 test("active platform membership takes precedence when an existing user has another organization membership", async () => {
   const workspace = await readFile(new URL("../src/services/workspace.ts", import.meta.url), "utf8");
-  assert.match(workspace, /const memberships = \(data \?\? \[\]\) as Membership\[\]/);
-  assert.match(workspace, /memberships\.find\(\(membership\) => membership\.role === "super_admin"\)/);
+  assert.match(workspace, /export async function listCurrentMemberships\(\): Promise<MembershipOption\[\]>/);
+  assert.match(workspace, /\.auth\.getUser\(\)/);
+  assert.match(workspace, /\.eq\("user_id", userData\.user\.id\)/);
+  assert.match(workspace, /\.eq\("is_active", true\)/);
+  assert.match(workspace, /const platformMembership = memberships\.find\(\(membership\) => membership\.role === "super_admin"\)/);
   assert.match(workspace, /if \(platformMembership\) return platformMembership/);
 });

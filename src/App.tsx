@@ -14,8 +14,8 @@ import { personalWhatsAppUrl, recordWhatsAppOpened, renderWhatsAppTemplate } fro
 import { requestPasswordReset, signIn, signOut, signUp, updatePassword } from "./services/auth";
 import type { LeadEvent, LeadRecord, LeadStatus } from "./types/database";
 import type { Session } from "@supabase/supabase-js";
-import { createTeam, getCurrentMembership, getOrganizationProfile, getPersonalPerformance, inviteMember, listTeams, listUserTeamNames } from "./services/workspace";
-import type { Membership, OrganizationProfile, PersonalPerformance, Team, WorkspaceSummary } from "./services/workspace";
+import { createTeam, getCurrentMembership, getOrganizationProfile, getPersonalPerformance, inviteMember, listCurrentMemberships, listTeams, listUserTeamNames } from "./services/workspace";
+import type { Membership, MembershipOption, OrganizationProfile, PersonalPerformance, Team, WorkspaceSummary } from "./services/workspace";
 import { DashboardLayout } from "./components/DashboardLayout";
 import { PublicLayout } from "./components/PublicLayout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -41,6 +41,7 @@ const DocumentationCenter = lazy(() => import("./components/DocumentationCenter"
 import { canAccessDocumentation, getDocumentationCenter, getDocumentationRedirectPath } from "./lib/documentationAccess";
 const DatabaseMonitoringView = lazy(() => import("./components/DatabaseMonitoringView").then((module) => ({ default: module.DatabaseMonitoringView })));
 import { applyRouteMetadata, getAppUrl, redirectToCanonicalDomain } from "./lib/appUrls";
+import { canAccessDashboardRoute, getRoleDashboardPath, isOrganizationPath, isSaasAdminPath, normalizePathname, resolveDashboardRoute, type DashboardView } from "./lib/roleRoutes";
 const DomainLinksView = lazy(() => import("./components/DomainManagementView").then((module) => ({ default: module.DomainLinksView })));
 const DomainManagementView = lazy(() => import("./components/DomainManagementView").then((module) => ({ default: module.DomainManagementView })));
 const MarketingPublicPage = lazy(() => import("./components/PublicPages").then((module) => ({ default: module.PublicPage })));
@@ -48,7 +49,7 @@ import { PublicLoading } from "./components/PublicLoading";
 const WorkspaceOnboardingView = lazy(() => import("./components/WorkspaceOnboardingView").then((module) => ({ default: module.WorkspaceOnboardingView })));
 
 const LEAD_PAGE_SIZE = 50;
-type View = "Overview" | "Leads" | "Campaigns" | "Follow-ups" | "Calling" | "Teams" | "Reports" | "Integrations" | "Company" | "Site Visits" | "Bookings" | "Notifications" | "Statuses" | "Platform" | "Users" | "Growth Tools" | "License Register" | "Database Monitoring" | "Automation" | "Sales Pipeline" | "Customer 360";
+type View = DashboardView;
 const leadLoadingViews = new Set<View>(["Overview", "Leads", "Calling", "Follow-ups", "Site Visits", "Bookings"]);
 type Status = "New" | "Contacted" | "Qualified" | "Follow-up" | "Won";
 type Lead = { id: string; dbId?: string; phone?: string | null; name: string; company: string; source: string; status: Status; score: number; owner: string; date: string; color: string };
@@ -61,26 +62,43 @@ const initialLeads: Lead[] = [
   { id: "AD-1044", name: "Vikram Singh", company: "Northstar Homes", source: "Website", status: "Won", score: 97, owner: "RK", date: "Oct 28, 2024", color: "#dceefd" },
 ];
 
-const navItems: { label: View; icon: typeof LayoutDashboard }[] = [
-  { label: "Overview", icon: LayoutDashboard },
-  { label: "Leads", icon: Users },
-  { label: "Campaigns", icon: Target },
-  { label: "Follow-ups", icon: ClipboardList },
-  { label: "Calling", icon: Headphones },
-  { label: "Site Visits", icon: CalendarDays },
-  { label: "Bookings", icon: Target },
-  { label: "Teams", icon: UsersRound },
-];
-
-const domainAdminPaths = new Set(["/saas/admin/domains", "/saas/admin/domains/links"]);
-const isDomainAdminPath = (path: string) => domainAdminPaths.has(path);
-const isPlatformUsersPath = (path: string) => path === "/saas/admin/users";
-const isSaasAdminPath = (path: string) => isDomainAdminPath(path) || isPlatformUsersPath(path);
 const publicMarketingPaths = new Set(["/", "/features", "/pricing", "/about", "/contact", "/integrations", "/faq", "/privacy", "/terms", "/cookies"]);
+const publicApplicationPaths = new Set([...publicMarketingPaths, "/login", "/super-admin/login", "/saas/admin/login", "/signup", "/reset-password", "/workspace/create"]);
+const platformNavigation: { path: string; label: string; icon: LucideIcon }[] = [
+  { path: "/saas/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { path: "/saas/admin/users", label: "Users", icon: UserPlus },
+  { path: "/saas/admin/companies", label: "Companies", icon: Building2 },
+  { path: "/saas/admin/workspaces", label: "Workspace Requests", icon: ClipboardList },
+  { path: "/saas/admin/plans", label: "Subscription Plans", icon: BarChart3 },
+  { path: "/saas/admin/subscriptions", label: "Subscriptions", icon: PieChart },
+  { path: "/saas/admin/domains", label: "Custom Domains", icon: Globe2 },
+  { path: "/saas/admin/growth-tools", label: "Growth Tools", icon: Wrench },
+  { path: "/saas/admin/security", label: "Security & License Register", icon: ShieldCheck },
+  { path: "/saas/admin/settings", label: "Platform Settings", icon: Settings },
+];
+const organizationNavigation: { path: string; label: string; icon: LucideIcon }[] = [
+  { path: "/org/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { path: "/org/leads", label: "Leads", icon: Users },
+  { path: "/org/users", label: "Sales Team / Users", icon: UserPlus },
+  { path: "/org/teams", label: "Teams", icon: UsersRound },
+  { path: "/org/calling", label: "Calling", icon: Headphones },
+  { path: "/org/campaigns", label: "Campaigns", icon: Target },
+  { path: "/org/follow-ups", label: "Follow-ups", icon: ClipboardList },
+  { path: "/org/pipeline", label: "Pipeline", icon: Target },
+  { path: "/org/reports", label: "Reports", icon: PieChart },
+  { path: "/org/automations", label: "Automations", icon: Bot },
+  { path: "/org/integrations", label: "Integrations", icon: Plug },
+  { path: "/org/settings", label: "Organization Settings", icon: Settings },
+  { path: "/org/site-visits", label: "Site Visits", icon: CalendarDays },
+  { path: "/org/bookings", label: "Bookings", icon: Target },
+  { path: "/org/customer-360", label: "Customer 360", icon: UsersRound },
+  { path: "/org/notifications", label: "Notifications", icon: Bell },
+];
 
 function App() {
   const [session, setSession] = useState<Session | null | undefined>(isSupabaseConfigured ? undefined : null);
-  const [view, setView] = useState<View>("Overview");
+  const [routePath, setRoutePath] = useState(() => window.location.pathname);
+  const [view, setView] = useState<View>(() => resolveDashboardRoute(window.location.pathname)?.view ?? "Overview");
   const [leads, setLeads] = useState<Lead[]>(isSupabaseConfigured ? [] : initialLeads);
   const [totalLeadCount, setTotalLeadCount] = useState(isSupabaseConfigured ? 0 : initialLeads.length);
   const [query, setQuery] = useState("");
@@ -91,6 +109,7 @@ function App() {
   const [showLeadForm, setShowLeadForm] = useState(false);
   const [toast, setToast] = useState("");
   const [membership, setMembership] = useState<Membership | null>(null);
+  const [membershipOptions, setMembershipOptions] = useState<MembershipOption[]>([]);
   const [organizationProfile, setOrganizationProfile] = useState<OrganizationProfile | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedLead, setSelectedLead] = useState<LeadRecord | null>(null);
@@ -108,6 +127,34 @@ function App() {
   const leadPageAbort = useRef<AbortController | null>(null);
   const loadMoreAbort = useRef<AbortController | null>(null);
 
+  const navigateToPath = useCallback((path: string, replace = false) => {
+    const normalizedPath = normalizePathname(path);
+    if (replace) window.history.replaceState({}, "", normalizedPath);
+    else if (window.location.pathname !== normalizedPath) window.history.pushState({}, "", normalizedPath);
+    setRoutePath(normalizedPath);
+    const route = resolveDashboardRoute(normalizedPath);
+    if (route) setView(route.view);
+    setSidebarOpen(false);
+  }, []);
+
+  const chooseMembership = useCallback((option: MembershipOption) => {
+    if (session) sessionStorage.setItem(`adometa-organization:${session.user.id}`, option.organization_id);
+    setMembership(option);
+    setMembershipOptions([]);
+    navigateToPath(getRoleDashboardPath(option.role), true);
+  }, [navigateToPath, session]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = normalizePathname(window.location.pathname);
+      setRoutePath(path);
+      const route = resolveDashboardRoute(path);
+      if (route) setView(route.view);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
   useEffect(() => {
     void redirectToCanonicalDomain().catch(() => {
       console.warn("Canonical domain redirect could not be checked.");
@@ -115,25 +162,55 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void applyRouteMetadata(window.location.pathname, Boolean(session))
+    void applyRouteMetadata(routePath, Boolean(session))
       .catch(() => console.warn("Page metadata could not be updated."));
-  }, [session]);
+  }, [routePath, session]);
 
   useEffect(() => {
-    const path = window.location.pathname;
-    if (!isSaasAdminPath(path) || session === undefined) return;
+    if (session === undefined) return;
+    const path = normalizePathname(routePath);
+    const isLegacyDashboard = path === "/dashboard" || path === "/super-admin/dashboard";
     if (!session) {
-      window.location.replace("/super-admin/login");
+      if (getDocumentationCenter(path)) navigateToPath(path === "/saas/admin/docs" ? "/super-admin/login" : "/login", true);
+      else if (isSaasAdminPath(path)) navigateToPath("/super-admin/login", true);
+      else if (isOrganizationPath(path) || isLegacyDashboard) navigateToPath("/login", true);
       return;
     }
-    if (!membershipLoaded) return;
-    if (membership?.role !== "super_admin" || !membership.is_active) {
-      window.location.replace(membership?.is_active ? "/dashboard" : "/login");
+    if (!membershipLoaded || membershipOptions.length || membershipError || !membership) return;
+    if (getDocumentationCenter(path) || path === "/reset-password") return;
+    if (path === "/saas/admin") {
+      navigateToPath("/saas/admin/dashboard", true);
+      return;
     }
-  }, [session, membershipLoaded, membership]);
+    if (path === "/org") {
+      navigateToPath("/org/dashboard", true);
+      return;
+    }
+    if (
+      isLegacyDashboard || path === "/" || path === "/login" || path === "/signup"
+      || path === "/super-admin/login" || path === "/saas/admin/login"
+      || publicMarketingPaths.has(path) || path === "/workspace/create"
+    ) {
+      navigateToPath(getRoleDashboardPath(membership.role), true);
+      return;
+    }
+    const route = resolveDashboardRoute(path);
+    if (route) {
+      if (!canAccessDashboardRoute(path, membership.role, membership.is_active)) {
+        navigateToPath(getRoleDashboardPath(membership.role), true);
+        return;
+      }
+      setView(route.view);
+      return;
+    }
+    if ((isSaasAdminPath(path) && membership.role !== "super_admin") || (isOrganizationPath(path) && membership.role === "super_admin")) {
+      navigateToPath(getRoleDashboardPath(membership.role), true);
+    }
+  }, [membership, membershipError, membershipLoaded, membershipOptions.length, navigateToPath, routePath, session]);
 
   const clearWorkspaceState = useCallback(() => {
     setMembership(null);
+    setMembershipOptions([]);
     setOrganizationProfile(null);
     setTeams([]);
     setSelectedLead(null);
@@ -171,15 +248,12 @@ function App() {
         setSession(null);
         setMembershipLoaded(true);
         setMembershipError("Your secure session could not be restored. Please sign in again.");
-        const loginPath = window.location.pathname.startsWith("/super-admin") ? "/super-admin/login" : "/login";
-        window.history.replaceState({}, "", `${loginPath}?reason=session-expired`);
+        const loginPath = isSaasAdminPath(window.location.pathname) ? "/super-admin/login" : "/login";
+        navigateToPath(`${loginPath}?reason=session-expired`, true);
         return;
       }
       authUserId.current = data.session?.user.id ?? null;
       setSession(data.session);
-      if (!data.session && ["/dashboard", "/super-admin/dashboard"].includes(window.location.pathname)) {
-        window.history.replaceState({}, "", window.location.pathname.startsWith("/super-admin") ? "/super-admin/login" : "/login");
-      }
     }).catch(() => {
       if (!active) return;
       authUserId.current = null;
@@ -187,54 +261,61 @@ function App() {
       setSession(null);
       setMembershipLoaded(true);
       setMembershipError("Your secure session could not be restored. Please sign in again.");
-      const loginPath = window.location.pathname.startsWith("/super-admin") ? "/super-admin/login" : "/login";
-      window.history.replaceState({}, "", `${loginPath}?reason=session-expired`);
+      const loginPath = isSaasAdminPath(window.location.pathname) ? "/super-admin/login" : "/login";
+      navigateToPath(`${loginPath}?reason=session-expired`, true);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       const previousUserId = authUserId.current;
       const nextUserId = nextSession?.user.id ?? null;
       authUserId.current = nextUserId;
       if (previousUserId !== nextUserId) {
+        if (previousUserId && !nextUserId) sessionStorage.removeItem(`adometa-organization:${previousUserId}`);
         clearWorkspaceState();
         setMembershipLoaded(!nextUserId);
       }
       setSession(nextSession);
       if (previousUserId && !nextUserId) {
-        const loginPath = window.location.pathname.startsWith("/super-admin") ? "/super-admin/login" : "/login";
+        const loginPath = isSaasAdminPath(window.location.pathname) || window.location.pathname.startsWith("/super-admin") ? "/super-admin/login" : "/login";
         const reason = logoutInProgress.current ? "" : "?reason=session-expired";
-        window.history.replaceState({}, "", `${loginPath}${reason}`);
+        navigateToPath(`${loginPath}${reason}`, true);
       }
     });
     return () => { active = false; listener.subscription.unsubscribe(); };
-  }, [clearWorkspaceState]);
+  }, [clearWorkspaceState, navigateToPath]);
 
   useEffect(() => {
     if (!supabase || !session) {
       setMembership(null);
+      setMembershipOptions([]);
       setMembershipLoaded(true);
       return;
     }
     let active = true;
     setMembershipLoaded(false);
     setMembershipError("");
-    void getCurrentMembership().then(async (current) => {
+    void listCurrentMemberships().then((currentMemberships) => {
       if (!active) return;
-      setMembership(current);
-      setMembershipLoaded(true);
-      if (!current) return;
-      const path = window.location.pathname;
-      if (current.role === "super_admin") {
-        if (path === "/login" || path === "/dashboard" || path === "/") window.history.replaceState({}, "", "/super-admin/dashboard");
-        setView(isPlatformUsersPath(path) ? "Users" : "Platform");
+      const platformMembership = currentMemberships.find((option) => option.role === "super_admin");
+      if (platformMembership) {
+        setMembership(platformMembership);
+        setMembershipOptions([]);
         setOrganizationProfile(null);
         setTeamNames([]);
-        return;
+      } else {
+        const selectedOrganizationId = sessionStorage.getItem(`adometa-organization:${session.user.id}`);
+        const selectedMembership = currentMemberships.find((option) => option.organization_id === selectedOrganizationId);
+        if (selectedMembership) {
+          setMembership(selectedMembership);
+          setMembershipOptions([]);
+        } else if (currentMemberships.length > 1) {
+          setMembership(null);
+          setMembershipOptions(currentMemberships);
+        } else {
+          setMembership(currentMemberships[0] ?? null);
+          setMembershipOptions([]);
+        }
       }
-      if (path === "/super-admin/dashboard" || path === "/super-admin/login" || isPlatformUsersPath(path)) {
-        window.history.replaceState({}, "", "/dashboard");
-        setView("Overview");
-      }
-      if (getDocumentationCenter(path) || isSaasAdminPath(path)) return;
+      setMembershipLoaded(true);
     }).catch((error: Error) => {
       if (!active) return;
       setMembership(null);
@@ -245,7 +326,7 @@ function App() {
   }, [session?.user.id, membershipRefresh]);
 
   useEffect(() => {
-    if (!membership || membership.role === "super_admin" || getDocumentationCenter(window.location.pathname) || isSaasAdminPath(window.location.pathname)) return;
+    if (!membership || membership.role === "super_admin" || getDocumentationCenter(routePath) || isSaasAdminPath(routePath)) return;
     let active = true;
     void Promise.all([
       getOrganizationProfile(membership.organization_id),
@@ -258,7 +339,7 @@ function App() {
       if (active) notify(error instanceof Error ? error.message : "Workspace details could not be loaded.");
     });
     return () => { active = false; };
-  }, [membership?.organization_id, membership?.user_id, membership?.role]);
+  }, [membership?.organization_id, membership?.user_id, membership?.role, routePath]);
 
   useEffect(() => {
     if (!membership || membership.role !== "agent" || view !== "Overview") {
@@ -282,31 +363,32 @@ function App() {
   }, [membership?.organization_id, membership?.role, view]);
 
   useEffect(() => {
-    const path = window.location.pathname;
+    const path = routePath;
     if (!getDocumentationCenter(path) || session === undefined) return;
     if (!session) {
-      window.location.replace("/login");
+      navigateToPath(path === "/saas/admin/docs" ? "/super-admin/login" : "/login", true);
       return;
     }
     if (!membershipLoaded) return;
+    if (membershipOptions.length > 1 && !membership) return;
     const redirectPath = getDocumentationRedirectPath(path, membership);
-    if (redirectPath) window.location.replace(redirectPath);
-  }, [session, membershipLoaded, membership]);
+    if (redirectPath) navigateToPath(redirectPath, true);
+  }, [session, membershipLoaded, membership, membershipOptions.length, navigateToPath, routePath]);
 
   useEffect(() => {
-    if (!supabase || !session || !membership || membership.role === "super_admin" || getDocumentationCenter(window.location.pathname) || isSaasAdminPath(window.location.pathname)) return;
+    if (!supabase || !session || !membership || membership.role === "super_admin" || getDocumentationCenter(routePath) || isSaasAdminPath(routePath)) return;
     let active = true;
     void countUnreadNotifications(membership.organization_id, membership.user_id)
       .then((count) => { if (active) setUnreadNotifications(count); })
       .catch((error: Error) => { if (active) notify(error.message || "Notifications could not be loaded."); });
     return () => { active = false; };
-  }, [session?.user.id, membership?.organization_id, membership?.role]);
+  }, [session?.user.id, membership?.organization_id, membership?.role, routePath]);
 
   useEffect(() => {
     leadPageAbort.current?.abort();
     loadMoreAbort.current?.abort();
     setIsLoadingMoreLeads(false);
-    if (!supabase || !session || !membership || membership.role === "super_admin" || !leadLoadingViews.has(view) || getDocumentationCenter(window.location.pathname) || isSaasAdminPath(window.location.pathname)) {
+    if (!supabase || !session || !membership || membership.role === "super_admin" || !leadLoadingViews.has(view) || getDocumentationCenter(routePath) || isSaasAdminPath(routePath)) {
       setIsLoadingLeads(false);
       return;
     }
@@ -329,7 +411,7 @@ function App() {
       controller.abort();
       loadMoreAbort.current?.abort();
     };
-  }, [debouncedQuery, session?.user.id, membership?.organization_id, membership?.role, view]);
+  }, [debouncedQuery, session?.user.id, membership?.organization_id, membership?.role, routePath, view]);
 
   const loadMoreLeads = async (): Promise<boolean> => {
     if (!supabase || !membership || isLoadingMoreLeads || operationLeads.length >= totalLeadCount) return false;
@@ -417,11 +499,12 @@ function App() {
       const loginPath = membership?.role === "super_admin" || window.location.pathname.startsWith("/super-admin")
         ? "/super-admin/login"
         : "/login";
+      if (session) sessionStorage.removeItem(`adometa-organization:${session.user.id}`);
       authUserId.current = null;
       clearWorkspaceState();
       setMembershipLoaded(true);
       setSession(null);
-      window.history.replaceState({}, "", loginPath);
+      navigateToPath(loginPath, true);
     } catch (error) {
       notify(error instanceof Error ? `Sign out failed: ${error.message}` : "Sign out failed. Please try again.");
       throw error;
@@ -439,34 +522,50 @@ function App() {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [sidebarOpen]);
 
-  if (supabaseConfigError && !publicMarketingPaths.has(window.location.pathname)) return <section className="auth-page"><div className="modal auth-card"><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">APPLICATION CONFIGURATION</p><h1>Workspace unavailable</h1><p className="muted" role="alert">{supabaseConfigError}</p><p className="muted">Configure the frontend settings in the deployment environment, then reload this page. No demo records are shown.</p></div></section>;
-  if (window.location.pathname === "/reset-password") return <PublicLayout><ResetPasswordScreen /></PublicLayout>;
+  if (supabaseConfigError && !publicMarketingPaths.has(routePath)) return <section className="auth-page"><div className="modal auth-card"><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">APPLICATION CONFIGURATION</p><h1>Workspace unavailable</h1><p className="muted" role="alert">{supabaseConfigError}</p><p className="muted">Configure the frontend settings in the deployment environment, then reload this page. No demo records are shown.</p></div></section>;
+  if (routePath === "/reset-password") return <PublicLayout><ResetPasswordScreen /></PublicLayout>;
   if (isSupabaseConfigured && session === undefined) return <PublicLoading message="Loading secure workspace" />;
-  const documentationCenter = getDocumentationCenter(window.location.pathname);
+  const documentationCenter = getDocumentationCenter(routePath);
   if (documentationCenter) {
-    if (!session || !membershipLoaded || !membership || !canAccessDocumentation(window.location.pathname, membership)) {
+    if (!session) return <PublicLayout>{routePath === "/saas/admin/docs" ? <SuperAdminLoginScreen /> : <LoginScreen />}</PublicLayout>;
+    if (!membershipLoaded) {
       return <PublicLoading message="Verifying documentation access" />;
     }
+    if (membershipOptions.length > 1 && !membership) return <OrganizationSelectionView memberships={membershipOptions} onSelect={chooseMembership} onSignOut={() => void handleLogout().catch(() => undefined)} />;
+    if (!membership || !canAccessDocumentation(routePath, membership)) return <RouteAccessDenied homePath={membership ? getRoleDashboardPath(membership.role) : "/login"} />;
     return <Suspense fallback={<PublicLoading message="Loading documentation" />}><DocumentationCenter centerId={documentationCenter} membership={membership} /></Suspense>;
   }
-  if (isSaasAdminPath(window.location.pathname) && (!session || !membershipLoaded || !membership || membership.role !== "super_admin" || !membership.is_active)) {
-    return <PublicLoading message="Verifying platform administrator access" />;
+  if (!session && (isSupabaseConfigured && (isSaasAdminPath(routePath) || isOrganizationPath(routePath) || routePath === "/dashboard" || routePath === "/super-admin/dashboard") || isSaasAdminPath(routePath))) {
+    return <PublicLayout>{isSaasAdminPath(routePath) || routePath === "/super-admin/dashboard" ? <SuperAdminLoginScreen /> : <LoginScreen />}</PublicLayout>;
   }
-  if (isDomainAdminPath(window.location.pathname)) {
-    return <Suspense fallback={<div className="route-loading" role="status">Loading domain management…</div>}>
-      {window.location.pathname === "/saas/admin/domains/links"
-        ? <DomainLinksView />
-        : <DomainManagementView onOpenLinks={() => window.location.assign("/saas/admin/domains/links")} />}
-    </Suspense>;
-  }
-  if (!session) return <PublicRoute session={session}><PublicLayout><PublicPage path={window.location.pathname} /></PublicLayout></PublicRoute>;
+  if (!session && routePath === "/saas/admin/login") return <PublicLayout><SuperAdminLoginScreen /></PublicLayout>;
+  if (!session && !publicApplicationPaths.has(routePath)) return <NotFoundView />;
+  if (!session) return <PublicRoute session={session}><PublicLayout><PublicPage path={routePath} /></PublicLayout></PublicRoute>;
   if (isSupabaseConfigured && !membershipLoaded) return <div className="public-loading"><div className="muted">Verifying organization access...</div></div>;
+  if (membershipOptions.length > 1 && !membership) {
+    return <OrganizationSelectionView
+      memberships={membershipOptions}
+      onSelect={chooseMembership}
+      onSignOut={() => void handleLogout().catch(() => undefined)}
+    />;
+  }
   if (isSupabaseConfigured && !membership && !membershipError) return <Suspense fallback={<PublicLoading message="Loading workspace setup" />}><WorkspaceOnboardingView
     onRefreshMembership={() => setMembershipRefresh((value) => value + 1)}
     onSignOut={() => void handleLogout().catch(() => undefined)}
     onNotify={notify}
   /></Suspense>;
   if (isSupabaseConfigured && (!membership || membershipError)) return <section className="auth-page"><div className="modal auth-card"><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">WORKSPACE ACCESS</p><h1>{membershipError ? "Access could not be verified" : "No active organization"}</h1><p className="muted">{membershipError || "Your account does not have an active organization membership."}</p>{membershipError && <button className="button secondary auth-submit" onClick={() => setMembershipRefresh((value) => value + 1)}>Try again</button>}<button className="button primary auth-submit" onClick={() => void handleLogout().catch(() => undefined)}>Sign out</button></div></section>;
+  const currentDashboardRoute = resolveDashboardRoute(routePath);
+  if (currentDashboardRoute && membership && !canAccessDashboardRoute(routePath, membership.role, membership.is_active)) {
+    return <RouteAccessDenied homePath={getRoleDashboardPath(membership.role)} />;
+  }
+  if (membership && ((isSaasAdminPath(routePath) && membership.role !== "super_admin") || (isOrganizationPath(routePath) && membership.role === "super_admin"))) {
+    return <RouteAccessDenied homePath={getRoleDashboardPath(membership.role)} />;
+  }
+  if (!isSupabaseConfigured && currentDashboardRoute?.area === "saas") return <NotFoundView />;
+  if (!currentDashboardRoute && !publicApplicationPaths.has(routePath) && routePath !== "/dashboard" && routePath !== "/super-admin/dashboard") {
+    return <NotFoundView />;
+  }
   return <ProtectedRoute session={session ?? null} allowAnonymous={!isSupabaseConfigured}><DashboardLayout>{(
     <div className="app-shell">
       {sidebarOpen && <button className="sidebar-backdrop" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
@@ -474,41 +573,40 @@ function App() {
         if (event.target instanceof Element && event.target.closest(".nav-item")) setSidebarOpen(false);
       }}>
         <div className="brand"><div className="brand-mark">A</div><span>adometa</span><button className="close-menu" aria-label="Close navigation" onClick={() => setSidebarOpen(false)}><X size={18} /></button></div>
-        <div className="workspace-switcher"><div className="workspace-avatar">{organizationProfile?.name?.slice(0, 2).toUpperCase() || "OR"}</div><div><strong>{organizationProfile?.name || "Organization"}</strong><small>Workspace</small></div><ChevronDown size={16} /></div>
-        <p className="nav-heading">WORKSPACE</p>
-        {membership?.role === "super_admin" && <nav><button className={`nav-item ${view === "Platform" ? "active" : ""}`} onClick={() => { setView("Platform"); window.history.replaceState({}, "", "/super-admin/dashboard"); }}><ShieldCheck size={18} /><span>Platform administration</span></button><a className={`nav-item ${view === "Users" ? "active" : ""}`} href="/saas/admin/users"><UserPlus size={18} /><span>Users</span></a><a className="nav-item" href="/saas/admin/domains"><Globe2 size={18} /><span>Domains / Custom Domains</span></a><button className={`nav-item ${view === "Growth Tools" ? "active" : ""}`} onClick={() => setView("Growth Tools")}><Wrench size={18} /><span>Growth Tools</span></button><button className={`nav-item ${view === "License Register" ? "active" : ""}`} onClick={() => setView("License Register")}><ShieldCheck size={18} /><span>License register</span></button><button className={`nav-item ${view === "Database Monitoring" ? "active" : ""}`} onClick={() => setView("Database Monitoring")}><Database size={18} /><span>Database monitoring</span></button></nav>}
-        <nav>{navItems.filter(({ label }) => membership?.role !== "super_admin" && (label !== "Teams" || membership?.role === "company_owner" || membership?.role === "organization_admin" || membership?.role === "manager")).map(({ label, icon: Icon }) => <button key={label} className={view === label ? "nav-item active" : "nav-item"} onClick={() => { setView(label); setSidebarOpen(false); }}><Icon size={18} /><span>{label}</span>{label === "Leads" && <em>{isSupabaseConfigured ? leads.length : "Demo"}</em>}</button>)}</nav>
-        <p className="nav-heading">MANAGE</p>
-        <nav>
-          <button className={`nav-item ${view === "Notifications" ? "active" : ""}`} onClick={() => setView("Notifications")}><Bell size={18} /><span>Notifications</span></button>
-          {(membership?.role === "company_owner" || membership?.role === "organization_admin") && <button className={`nav-item ${view === "Company" ? "active" : ""}`} onClick={() => setView("Company")}><Building2 size={18} /><span>Company</span></button>}
-          {(membership?.role === "company_owner" || membership?.role === "organization_admin" || membership?.role === "manager" || membership?.role === "auditor" || membership?.role === "agent" || !isSupabaseConfigured) && <button className={`nav-item ${view === "Reports" ? "active" : ""}`} onClick={() => setView("Reports")}><PieChart size={18} /><span>Reports</span></button>}
-          {(membership?.role === "company_owner" || membership?.role === "organization_admin" || !isSupabaseConfigured) && <button className={`nav-item ${view === "Integrations" ? "active" : ""}`} onClick={() => setView("Integrations")}><Plug size={18} /><span>Integrations</span></button>}
-          {(membership?.role === "company_owner" || membership?.role === "organization_admin") && <button className={`nav-item ${view === "Statuses" ? "active" : ""}`} onClick={() => setView("Statuses")}><Settings size={18} /><span>Lead statuses</span></button>}
-          {(membership?.role === "company_owner" || membership?.role === "organization_admin" || membership?.role === "manager") && <button className={`nav-item ${view === "Automation" ? "active" : ""}`} onClick={() => setView("Automation")}><Bot size={18} /><span>Automation</span></button>}
-          {membership && <><button className={`nav-item ${view === "Sales Pipeline" ? "active" : ""}`} onClick={() => setView("Sales Pipeline")}><Target size={18} /><span>Sales pipeline</span></button><button className={`nav-item ${view === "Customer 360" ? "active" : ""}`} onClick={() => setView("Customer 360")}><Users size={18} /><span>Customer 360</span></button></>}
-          {(membership?.role === "company_owner" || membership?.role === "organization_admin") && <button className={`nav-item ${view === "Company" ? "active" : ""}`} onClick={() => setView("Company")}><Settings size={18} /><span>Organization settings</span></button>}
+        <div className="workspace-switcher"><div className="workspace-avatar">{membership?.role === "super_admin" ? "AD" : organizationProfile?.name?.slice(0, 2).toUpperCase() || "OR"}</div><div><strong>{membership?.role === "super_admin" ? "Adometa Platform" : organizationProfile?.name || "Organization"}</strong><small>{membership?.role === "super_admin" ? "SaaS administration" : "Workspace"}</small></div><ChevronDown size={16} /></div>
+        <p className="nav-heading">{membership?.role === "super_admin" ? "PLATFORM" : "WORKSPACE"}</p>
+        <nav aria-label={membership?.role === "super_admin" ? "SaaS administration" : "Organization workspace"}>
+          {(membership?.role === "super_admin" ? platformNavigation : organizationNavigation)
+            .filter((item) => membership?.role === "super_admin" || Boolean(membership && canAccessDashboardRoute(item.path, membership.role, membership.is_active)))
+            .map(({ path, label, icon: Icon }) => {
+              const active = routePath === path || path === "/saas/admin/domains" && routePath.startsWith("/saas/admin/domains/");
+              return <button key={path} className={`nav-item ${active ? "active" : ""}`} aria-current={active ? "page" : undefined} onClick={() => navigateToPath(path)}><Icon size={18} /><span>{label}</span>{label === "Leads" && <em>{isSupabaseConfigured ? leads.length : "Demo"}</em>}</button>;
+            })}
+          {membership?.role === "super_admin" && <button className={`nav-item ${routePath === "/saas/admin/database" ? "active" : ""}`} onClick={() => navigateToPath("/saas/admin/database")}><Database size={18} /><span>Database Monitoring</span></button>}
         </nav>
         <p className="nav-heading">HELP</p>
         <nav>
           <a className="nav-item documentation-workspace-link" href={membership?.role === "super_admin" ? "/saas/admin/docs" : membership?.role === "company_owner" || membership?.role === "organization_admin" ? "/admin/docs" : "/docs"}><CircleHelp size={18} /><span>{membership?.role === "super_admin" ? "Platform guide" : membership?.role === "company_owner" || membership?.role === "organization_admin" ? "Admin guide" : "Help center"}</span></a>
         </nav>
         <button className="nav-item mobile-signout" onClick={() => void handleLogout().catch(() => undefined)}><LogOut size={18} /><span>Sign out</span></button>
-        <div className="sidebar-bottom"><div className="upgrade-card"><Zap size={17} /><strong>Make more happen</strong><p>Unlock advanced analytics and automation.</p><button onClick={() => notify("Upgrade request noted")}>Explore plans <ArrowUpRight size={14} /></button></div></div>
+        {membership?.role !== "super_admin" && <div className="sidebar-bottom"><div className="upgrade-card"><Zap size={17} /><strong>Make more happen</strong><p>Unlock advanced analytics and automation.</p><button onClick={() => navigateToPath("/org/settings")}>Explore plans <ArrowUpRight size={14} /></button></div></div>}
       </aside>
       <main className="main-content">
-        <header className="topbar"><button className="mobile-menu" aria-label="Open navigation" aria-expanded={sidebarOpen} aria-controls="workspace-navigation" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div className="breadcrumbs"><span>Workspace</span><span>/</span><strong>{view}</strong></div><div className="topbar-actions"><div className="global-search"><Search size={17} /><input placeholder="Search anything..." value={query} onChange={(e) => setQuery(e.target.value)} /><kbd>⌘ K</kbd></div><a className="icon-button" aria-label="Help center" title="Help center" href={membership?.role === "super_admin" ? "/saas/admin/docs" : membership?.role === "company_owner" || membership?.role === "organization_admin" ? "/admin/docs" : "/docs"}><CircleHelp size={19} /></a><button className="icon-button notification" aria-label={`Notifications${unreadNotifications ? ` (${unreadNotifications} unread)` : ""}`} onClick={() => setView("Notifications")}><Bell size={19} />{unreadNotifications > 0 && <span className="notification-count">{unreadNotifications}</span>}</button>{membership && <ProfileMenu session={session} membership={membership} organizationName={organizationProfile?.name || ""} organizationIsActive={organizationProfile?.is_active ?? null} teamNames={teamNames} onLogout={handleLogout} />}</div></header>
+        <header className="topbar"><button className="mobile-menu" aria-label="Open navigation" aria-expanded={sidebarOpen} aria-controls="workspace-navigation" onClick={() => setSidebarOpen(true)}><Menu size={21} /></button><div className="breadcrumbs"><span>{membership?.role === "super_admin" ? "Platform" : organizationProfile?.name || "Workspace"}</span><span>/</span><strong>{currentDashboardRoute?.label || view}</strong></div><div className="topbar-actions"><div className="global-search"><Search size={17} /><input placeholder="Search anything..." value={query} onChange={(e) => setQuery(e.target.value)} /><kbd>⌘ K</kbd></div><a className="icon-button" aria-label="Help center" title="Help center" href={membership?.role === "super_admin" ? "/saas/admin/docs" : membership?.role === "company_owner" || membership?.role === "organization_admin" ? "/admin/docs" : "/docs"}><CircleHelp size={19} /></a>{membership?.role !== "super_admin" && <button className="icon-button notification" aria-label={`Notifications${unreadNotifications ? ` (${unreadNotifications} unread)` : ""}`} onClick={() => navigateToPath("/org/notifications")}><Bell size={19} />{unreadNotifications > 0 && <span className="notification-count">{unreadNotifications}</span>}</button>}{membership && <ProfileMenu session={session} membership={membership} organizationName={organizationProfile?.name || ""} organizationIsActive={organizationProfile?.is_active ?? null} teamNames={teamNames} onLogout={handleLogout} />}</div></header>
         <div className="page-content">
           <Suspense fallback={<div className="route-loading" role="status">Loading this view…</div>}>
-          {view === "Platform" && membership && <PlatformAdminView membership={membership} onNotify={notify} />}
-          {view === "Users" && membership?.role === "super_admin" && <PlatformUserManagementView onNotify={notify} onOpenCompanies={() => { setView("Platform"); window.history.replaceState({}, "", "/super-admin/dashboard"); }} />}
+          {view === "Platform" && membership && currentDashboardRoute?.section && <PlatformAdminView membership={membership} section={currentDashboardRoute.section} onNotify={notify} />}
+          {view === "Users" && membership?.role === "super_admin" && <PlatformUserManagementView onNotify={notify} onOpenCompanies={() => navigateToPath("/saas/admin/companies")} />}
+          {routePath === "/saas/admin/domains" && membership?.role === "super_admin" && <DomainManagementView onOpenLinks={() => navigateToPath("/saas/admin/domains/links")} />}
+          {routePath === "/saas/admin/domains/links" && membership?.role === "super_admin" && <DomainLinksView />}
           {view === "Database Monitoring" && membership && <DatabaseMonitoringView membership={membership} session={session ?? null} onNotify={notify} />}
           {view === "Growth Tools" && membership && <GrowthToolsView membership={membership} />}
           {view === "License Register" && membership && <LicenseRegisterView membership={membership} />}
+          {view === "Platform Settings" && <PlatformSettingsView onOpenDomains={() => navigateToPath("/saas/admin/domains")} onOpenDatabase={() => navigateToPath("/saas/admin/database")} />}
           {view === "Automation" && membership && <AutomationView membership={membership} onNotify={notify} />}
           {view === "Sales Pipeline" && membership && <SalesPipelineView membership={membership} onNotify={notify} />}
           {view === "Customer 360" && membership && <Customer360View membership={membership} onNotify={notify} />}
-          {view === "Overview" && <Overview leads={leads} totalLeadCount={totalLeadCount} performance={performance} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => setView("Leads")} />}
+          {view === "Overview" && <Overview leads={leads} totalLeadCount={totalLeadCount} performance={performance} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => navigateToPath("/org/leads")} />}
           {view === "Leads" && <LeadsView leads={filteredLeads} totalCount={totalLeadCount} isLoading={isLoadingLeads} isSearchPending={query.trim() !== debouncedQuery} isLoadingMore={isLoadingMoreLeads} hasMore={Boolean(supabase) && operationLeads.length < totalLeadCount} onLoadMore={() => void loadMoreLeads()} query={query} onAdd={() => setShowLeadForm(true)} onOpen={(externalId) => void loadLeadDetails(externalId)} onStatusChange={async (id, status) => { try { if (supabase) await updateLeadStatus(id, status.toLowerCase().replace("-", "_") as LeadStatus); setLeads((all) => all.map((lead) => lead.id === id ? { ...lead, status } : lead)); notify("Lead status updated"); } catch (error) { notify(error instanceof Error ? error.message : "Could not update lead"); } }} />}
           {view === "Campaigns" && (isSupabaseConfigured ? <ModulePending eyebrow="CAMPAIGN MANAGEMENT" title="Campaigns" description="Campaign records will appear here after the campaign repository is connected." icon={<Target size={24} />} /> : <Campaigns onNotify={notify} />)}
           {view === "Follow-ups" && (membership ? <FollowUpsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FOLLOW-UP QUEUE" title="Follow-ups" description="An authenticated organization membership is required." icon={<ClipboardList size={24} />} />)}
@@ -516,7 +614,8 @@ function App() {
           {view === "Site Visits" && (membership ? <SiteVisitsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FIELD WORK" title="Site visits" description="An authenticated organization membership is required." icon={<CalendarDays size={24} />} />)}
           {view === "Bookings" && (membership ? <BookingsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="REVENUE" title="Bookings" description="An authenticated organization membership is required." icon={<Target size={24} />} />)}
           {view === "Teams" && (membership?.role === "company_owner" || membership?.role === "organization_admin" || membership?.role === "manager" ? <TeamsView membership={membership} teams={teams} onCreated={(team) => setTeams((current) => [team, ...current])} onNotify={notify} /> : <ModulePending eyebrow="TEAM MANAGEMENT" title="Teams & roles" description="Your current role does not have access to team management." icon={<UsersRound size={24} />} />)}
-          {view === "Company" && membership && <><CompanyAdminView membership={membership} onNotify={notify} /><OrganizationAdminControls organizationId={membership.organization_id} onNotify={notify} /></>}
+          {view === "Company" && membership && <CompanyAdminView membership={membership} onNotify={notify} />}
+          {view === "Organization Settings" && membership && <><PageHeader eyebrow="ORGANIZATION" title="Organization settings" description="Manage organization contact details and audit history." /><OrganizationAdminControls organizationId={membership.organization_id} onNotify={notify} /></>}
           {view === "Reports" && (membership ? <ReportsView membership={membership} onNotify={notify} /> : <ModulePending eyebrow="ANALYTICS" title="Reports & analytics" description="An authenticated organization membership is required." icon={<PieChart size={24} />} />)}
           {view === "Notifications" && (membership ? <NotificationsView membership={membership} onNotify={notify} onUnreadCount={setUnreadNotifications} /> : <ModulePending eyebrow="ACTIVITY CENTER" title="Notifications" description="An authenticated organization membership is required." icon={<Bell size={24} />} />)}
           {view === "Statuses" && (membership?.role === "company_owner" || membership?.role === "organization_admin" ? <StatusSettingsView membership={membership} onNotify={notify} /> : <ModulePending eyebrow="WORKSPACE SETTINGS" title="Lead statuses" description="Only company owners and organization admins can manage statuses." icon={<Settings size={24} />} />)}
@@ -542,6 +641,30 @@ function toUiLead(record: LeadRecord): Lead {
 
 function ModulePending({ eyebrow, title, description, icon }: { eyebrow: string; title: string; description: string; icon: React.ReactNode }) {
   return <><PageHeader eyebrow={eyebrow} title={title} description={description} /><section className="card pending-module"><div className="pending-icon">{icon}</div><h2>Ready for configuration</h2><p>This workspace is intentionally not showing demo data. Connect the required backend workflow to enable this module.</p><span className="pending-pill"><ShieldCheck size={14} /> Secure by default</span></section></>;
+}
+
+function OrganizationSelectionView({ memberships, onSelect, onSignOut }: { memberships: MembershipOption[]; onSelect: (membership: MembershipOption) => void; onSignOut: () => void }) {
+  const roleLabels: Record<Membership["role"], string> = {
+    super_admin: "SaaS Super Admin",
+    company_owner: "Company Owner",
+    organization_admin: "Organization Admin",
+    manager: "Sales Manager",
+    agent: "Salesperson",
+    auditor: "Auditor",
+  };
+  return <main className="auth-page"><section className="modal auth-card"><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">ORGANIZATION ACCESS</p><h1>Choose a workspace</h1><p className="muted">Your account has access to more than one organization. Select which workspace to open.</p><div className="organization-choice-list">{memberships.map((option) => <button className="button secondary" key={option.organization_id} onClick={() => onSelect(option)}><Building2 size={17} /><span><strong>{option.organization_name}</strong><small>{roleLabels[option.role]}</small></span><ArrowUpRight size={16} /></button>)}</div><button className="text-button auth-toggle" onClick={onSignOut}>Sign out</button></section></main>;
+}
+
+function RouteAccessDenied({ homePath }: { homePath: string }) {
+  return <section className="auth-page"><div className="modal auth-card"><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">403 · ACCESS DENIED</p><h1>This page is not available for your role</h1><p className="muted">Your verified membership does not have permission to open this route.</p><a className="button primary auth-submit" href={homePath}>Go to your dashboard</a></div></section>;
+}
+
+function NotFoundView() {
+  return <section className="auth-page"><div className="modal auth-card"><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">404 · NOT FOUND</p><h1>This page does not exist</h1><p className="muted">Check the URL or return to the Adometa home page.</p><a className="button primary auth-submit" href="/">Go to home</a></div></section>;
+}
+
+function PlatformSettingsView({ onOpenDomains, onOpenDatabase }: { onOpenDomains: () => void; onOpenDatabase: () => void }) {
+  return <><PageHeader eyebrow="PLATFORM CONFIGURATION" title="Platform settings" description="Platform-level settings remain protected and are changed only through verified administration workflows." /><section className="card pending-module"><h2>Configuration ownership</h2><p className="muted">Custom-domain and canonical URL settings are managed in Domain Management. Database connection credentials are deployment-managed and are not exposed in the browser.</p><div className="integration-actions"><button className="button secondary" onClick={onOpenDomains}><Globe2 size={16} /> Custom Domains</button><button className="button secondary" onClick={onOpenDatabase}><Database size={16} /> Database Monitoring</button></div></section></>;
 }
 
 function Integrations({ onNotify }: { onNotify: (message: string) => void }) {
@@ -582,7 +705,7 @@ function SuperAdminLoginScreen() {
           await signOut();
           throw new Error("This account is not authorized for Super Admin access.");
         }
-        window.location.assign(await getAppUrl("/super-admin/dashboard"));
+        window.location.assign(await getAppUrl("/saas/admin/dashboard"));
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Super Admin authentication failed");

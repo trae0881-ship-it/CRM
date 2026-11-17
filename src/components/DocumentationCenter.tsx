@@ -55,6 +55,7 @@ export function DocumentationCenter({ centerId, membership }: { centerId: Docume
   const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0];
   const selectedIndex = selected ? filtered.findIndex((item) => item.id === selected.id) : -1;
   const links = roleCenterLinks(membership);
+  const dashboardPath = membership.role === "super_admin" ? "/saas/admin/dashboard" : "/org/dashboard";
 
   useEffect(() => {
     if (!mobileNavOpen) return;
@@ -71,7 +72,7 @@ export function DocumentationCenter({ centerId, membership }: { centerId: Docume
   }, [mobileNavOpen]);
 
   if (!articles.length) return <main className="documentation-empty"><h1>Documentation unavailable</h1><p>No articles are available for this role.</p></main>;
-  if (!filtered.length) return <main className="documentation-page"><header className="documentation-topbar"><a className="documentation-brand" href="/dashboard"><span className="documentation-brand-mark">A</span> adometa <span>Help Center</span></a><div className="documentation-center-links">{links.map((link) => <a key={link.route} className={link.route === center.route ? "current" : ""} href={link.route}>{link.title}</a>)}</div></header><section className="documentation-empty"><label className="documentation-search"><Search size={17} /><input type="search" placeholder="Search chapters..." value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search documentation" /></label><h1>No matching articles</h1><p>Try a different search word or clear the search field.</p></section></main>;
+  if (!filtered.length) return <main className="documentation-page"><header className="documentation-topbar"><a className="documentation-brand" href={dashboardPath}><span className="documentation-brand-mark">A</span> adometa <span>Help Center</span></a><div className="documentation-center-links">{links.map((link) => <a key={link.route} className={link.route === center.route ? "current" : ""} href={link.route}>{link.title}</a>)}</div></header><section className="documentation-empty"><label className="documentation-search"><Search size={17} /><input type="search" placeholder="Search chapters..." value={search} onChange={(event) => setSearch(event.target.value)} aria-label="Search documentation" /></label><h1>No matching articles</h1><p>Try a different search word or clear the search field.</p></section></main>;
   if (!selected) return <main className="documentation-empty"><h1>Documentation unavailable</h1><p>No article is available.</p></main>;
 
   const changeArticle = (id: string | undefined) => {
@@ -89,7 +90,7 @@ export function DocumentationCenter({ centerId, membership }: { centerId: Docume
 
   return <main className="documentation-page">
     <header className="documentation-topbar">
-      <a className="documentation-brand" href="/dashboard"><span className="documentation-brand-mark">A</span> adometa <span>Help Center</span></a>
+      <a className="documentation-brand" href={dashboardPath}><span className="documentation-brand-mark">A</span> adometa <span>Help Center</span></a>
       <div className="documentation-center-links" aria-label="Available help centers">
         {links.map((link) => <a key={link.route} className={link.route === center.route ? "current" : ""} href={link.route}>{link.title}</a>)}
       </div>
@@ -103,7 +104,7 @@ export function DocumentationCenter({ centerId, membership }: { centerId: Docume
       {mobileNavOpen && <button className="documentation-backdrop" aria-label="Close chapters" onClick={() => setMobileNavOpen(false)} />}
       <article className="documentation-article">
         <div className="documentation-article-tools"><button className="documentation-mobile-nav" aria-controls="documentation-sidebar" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(true)}><Menu size={17} /> Chapters</button><button className="documentation-print" onClick={() => window.print()}><Printer size={16} /> Print</button></div>
-        <nav className="documentation-breadcrumb" aria-label="Breadcrumb"><a href="/dashboard">Workspace</a><span>/</span><a href={center.route}>{center.title}</a><span>/</span><span>{selected.category}</span></nav>
+        <nav className="documentation-breadcrumb" aria-label="Breadcrumb"><a href={dashboardPath}>Workspace</a><span>/</span><a href={center.route}>{center.title}</a><span>/</span><span>{selected.category}</span></nav>
         <div className="documentation-article-heading"><span className="documentation-category"><BookOpen size={14} /> {selected.category}</span><h2>{selected.title}</h2><p>{selected.introduction}</p></div>
         <WorkflowIllustration article={selected} />
         <section className="documentation-steps" aria-label="Steps">
