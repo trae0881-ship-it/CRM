@@ -15,6 +15,17 @@ test("heavy views are lazy-loaded instead of included in the initial app module"
   assert.doesNotMatch(app, /^import\s+\{\s*ReportsView/m);
 });
 
+test("lazy dashboard views are rendered inside the route loading boundary", async () => {
+  const app = await read("src/App.tsx");
+  const pageContent = app.slice(app.indexOf('<div className="page-content">'), app.indexOf("</div>\n      </main>"));
+  const boundaryStart = pageContent.indexOf("<Suspense fallback=");
+  const boundaryEnd = pageContent.lastIndexOf("</Suspense>");
+  for (const component of ["PlatformAdminView", "GrowthToolsView", "LicenseRegisterView", "DatabaseMonitoringView", "SalesPipelineView", "Customer360View"]) {
+    const renderPosition = pageContent.indexOf(`<${component} `);
+    assert.ok(renderPosition > boundaryStart && renderPosition < boundaryEnd, `${component} should be inside the route loading boundary`);
+  }
+});
+
 test("lead queries request bounded server pages and support cancellation", async () => {
   const service = await read("src/services/leads.ts");
   assert.match(service, /Math\.min\(100, Math\.max\(1, Math\.floor\(options\.limit \?\? 50\)\)\)/);
