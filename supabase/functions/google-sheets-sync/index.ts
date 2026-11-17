@@ -1,6 +1,11 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+const corsHeaders = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "authorization, x-client-info, apikey, content-type",
+  "access-control-allow-methods": "POST, OPTIONS",
+};
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "content-type": "application/json" } });
 const env = (name: string) => {
   const value = Deno.env.get(name);
   if (!value) throw new Error(`${name} is not configured`);
@@ -31,6 +36,7 @@ function normalizePhone(value: unknown) { const result = String(value ?? "").rep
 function normalizeEmail(value: unknown) { const result = String(value ?? "").trim().toLowerCase(); return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(result) ? result : null; }
 
 Deno.serve(async (request) => {
+  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
     if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
     const user = await validUser(request);

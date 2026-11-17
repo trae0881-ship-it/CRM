@@ -1,6 +1,15 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+const corsHeaders = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "authorization, x-client-info, apikey, content-type",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+};
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "content-type": "application/json" } });
+const callbackPage = (result: "connected" | "error", message: string, status = 200) => new Response(
+  `<!doctype html><html lang="en"><meta charset="utf-8"><title>Google Sheets authorization</title><body><p>${message}</p><script>if(window.opener){window.opener.postMessage({type:"adometa-google-sheets-${result}"},"*");window.close();}</script></body></html>`,
+  { status, headers: { ...corsHeaders, "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
+);
 const env = (name: string) => {
   const value = Deno.env.get(name);
   if (!value) throw new Error(`${name} is not configured`);
@@ -33,31 +42,33 @@ async function userFromRequest(request: Request) {
 }
 
 Deno.serve(async (request) => {
+  if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
     const url = new URL(request.url);
-    if (request.method === "GET" && url.searchParams.get("code")) {
+    if (request.method === "GET" && (url.searchParams.has("code") || url.searchParams.has("error"))) {
+      if (url.searchParams.has("error")) return callbackPage("error", "Google authorization was cancelled or rejected.", 400);
       const state = url.searchParams.get("state");
       const code = url.searchParams.get("code");
-      if (!state || !code) return json({ error: "Invalid OAuth callback" }, 400);
+      if (!state || !code) return callbackPage("error", "Google authorization could not be validated.", 400);
       const admin = getAdmin();
       const { data: oauthState, error: stateError } = await admin.from("google_oauth_states").select("*").eq("state_hash", await sha256(state)).is("used_at", null).gt("expires_at", new Date().toISOString()).single();
-      if (stateError || !oauthState) return json({ error: "OAuth state expired or invalid" }, 400);
+      if (stateError || !oauthState) return callbackPage("error", "Google authorization expired. Please try connecting again.", 400);
       const tokenResponse = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: env("GOOGLE_CLIENT_ID"), client_secret: env("GOOGLE_CLIENT_SECRET"), redirect_uri: env("GOOGLE_SHEETS_REDIRECT_URI"), grant_type: "authorization_code" }) });
-      if (!tokenResponse.ok) return json({ error: "Google authorization failed" }, 400);
+      if (!tokenResponse.ok) return callbackPage("error", "Google authorization failed. Check the OAuth client and callback configuration.", 400);
       const tokens = await tokenResponse.json();
-      if (!tokens.refresh_token) return json({ error: "Google did not return a refresh token; revoke access and try again" }, 400);
+      if (!tokens.refresh_token) return callbackPage("error", "Google did not return a refresh token. Revoke Adometa access and try again.", 400);
       const accountResponse = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { authorization: `Bearer ${tokens.access_token}` } });
       const account = accountResponse.ok ? await accountResponse.json() : {};
       const { error: updateStateError } = await admin.from("google_oauth_states").update({ used_at: new Date().toISOString() }).eq("state_hash", await sha256(state));
-      if (updateStateError) return json({ error: "OAuth state could not be completed" }, 500);
+      if (updateStateError) return callbackPage("error", "Google authorization could not be completed. Please retry.", 500);
       const { error: integrationError } = await admin.from("google_sheet_integrations").insert({
         organization_id: oauthState.organization_id, created_by: oauthState.user_id, provider_account_email: account.email ?? null,
         spreadsheet_id: "pending-selection", spreadsheet_name: null, status: "connected",
         token_ciphertext: await encryptToken(JSON.stringify({ refresh_token: tokens.refresh_token, access_token: tokens.access_token })),
         token_expires_at: new Date(Date.now() + Number(tokens.expires_in ?? 3600) * 1000).toISOString(),
       });
-      if (integrationError) return json({ error: "Google integration could not be saved" }, 500);
-      return new Response("<html><body>Google account connected. You may close this window.</body></html>", { headers: { "content-type": "text/html" } });
+      if (integrationError) return callbackPage("error", "Google account could not be saved. Please retry or contact your administrator.", 500);
+      return callbackPage("connected", "Google account connected. This window should close automatically.");
     }
     if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
     const user = await userFromRequest(request);
@@ -93,6 +104,7 @@ Deno.serve(async (request) => {
     }
     return json({ error: "Invalid OAuth action" }, 400);
   } catch (error) {
+    if (request.method === "GET") return callbackPage("error", "Google authorization could not be completed. Ask your administrator to check the integration setup.", 500);
     return json({ error: error instanceof Error ? error.message : "Google OAuth service failed" }, 500);
   }
 });

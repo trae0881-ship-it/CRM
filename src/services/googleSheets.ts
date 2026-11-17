@@ -6,6 +6,23 @@ const client = () => {
   return supabase;
 };
 
+async function invokeGoogleFunction<T>(name: string, body: Record<string, unknown>) {
+  const { data, error } = await client().functions.invoke(name, { body });
+  if (error) {
+    let message = error.message;
+    if (typeof error === "object" && error !== null && "context" in error && error.context instanceof Response) {
+      const response = error.context;
+      const payload = await response.clone().json().catch(() => null) as { error?: unknown } | null;
+      if (typeof payload?.error === "string") message = payload.error;
+      else message = `${message} (HTTP ${response.status})`;
+    } else if (error.name === "FunctionsFetchError") {
+      message = `Could not reach the ${name} Edge Function. Confirm it is deployed to the same Supabase project as VITE_SUPABASE_URL, redeploy the latest function source with CORS support, and check the function logs. Enabling Google under Supabase Auth providers does not deploy this function.`;
+    }
+    throw new Error(message);
+  }
+  return data as T;
+}
+
 export type GoogleSheetIntegration = {
   id: string;
   organization_id: string;
@@ -30,9 +47,7 @@ export type GoogleSheetIntegration = {
 };
 
 export async function startGoogleOAuth(organizationId: string) {
-  const { data, error } = await client().functions.invoke("google-sheets-oauth", { body: { action: "start", organizationId } });
-  if (error) throw error;
-  return data as { authorizationUrl: string };
+  return invokeGoogleFunction<{ authorizationUrl: string }>("google-sheets-oauth", { action: "start", organizationId });
 }
 
 export async function listGoogleSheetIntegrations(organizationId: string) {
@@ -48,9 +63,7 @@ export async function updateGoogleSheetSettings(id: string, patch: { spreadsheet
 }
 
 export async function syncGoogleSheet(id: string, confirmInitialImport = false) {
-  const { data, error } = await client().functions.invoke("google-sheets-sync", { body: { integrationId: id, confirmInitialImport } });
-  if (error) throw error;
-  return data as { runId: string; status: string; totalRows: number; newLeads: number; updatedLeads: number; duplicateRows: number; failedRows: number };
+  return invokeGoogleFunction<{ runId: string; status: string; totalRows: number; newLeads: number; updatedLeads: number; duplicateRows: number; failedRows: number }>("google-sheets-sync", { integrationId: id, confirmInitialImport });
 }
 
 export async function listGoogleSyncRuns(organizationId: string) {
@@ -60,7 +73,5 @@ export async function listGoogleSyncRuns(organizationId: string) {
 }
 
 export async function disconnectGoogleSheet(id: string) {
-  const { data, error } = await client().functions.invoke("google-sheets-oauth", { body: { action: "disconnect", integrationId: id } });
-  if (error) throw error;
-  return data;
+  return invokeGoogleFunction<unknown>("google-sheets-oauth", { action: "disconnect", integrationId: id });
 }
