@@ -20,7 +20,14 @@ type Props = {
 
 const formatPlanPrice = (plan: AvailableSubscriptionPlan) => {
   const currency = plan.currency_code ? `${plan.currency_code} ` : "";
-  return `${currency}${Number(plan.price_monthly).toFixed(2)} / month`;
+  return [
+    ["month", plan.price_monthly],
+    ["quarter", plan.price_quarterly],
+    ["half-year", plan.price_half_yearly],
+    ["year", plan.price_yearly],
+  ].filter(([, price]) => Number(price) > 0)
+    .map(([period, price]) => `${currency}${Number(price).toFixed(2)} / ${period}`)
+    .join(" · ");
 };
 
 function getLoadErrorMessage(error: unknown, fallback: string) {
@@ -51,7 +58,7 @@ export function WorkspaceOnboardingView({ onRefreshMembership, onSignOut, onNoti
     setLoading(true);
     setErrorMessage("");
     const [plansResult, requestsResult, accessResult, userResult] = await Promise.allSettled([
-      listAvailableSubscriptionPlans(),
+      listAvailableSubscriptionPlans({ paidOnly: true }),
       listMyWorkspaceRequests(),
       getMyWorkspaceAccessStatus(),
       Promise.resolve(supabase?.auth.getUser()),
@@ -180,7 +187,7 @@ export function WorkspaceOnboardingView({ onRefreshMembership, onSignOut, onNoti
             <option value="" disabled>Select a plan</option>
             {plans.map((plan) => <option value={plan.id} key={plan.id}>{plan.name} — {formatPlanPrice(plan)}</option>)}
           </select></label>
-          {!plansLoadFailed && plans.length === 0 && <p className="form-error">No active plans are available. Contact Adometa support.</p>}
+          {!plansLoadFailed && plans.length === 0 && <p className="form-error">No active paid plans are available. Ask a SaaS Admin to add and activate a plan.</p>}
           <label>Additional information (optional)<textarea maxLength={2000} value={additionalInformation} onChange={(event) => setAdditionalInformation(event.target.value)} /></label>
           <button className="button primary" disabled={busy || plans.length === 0 || plansLoadFailed}>{busy ? "Submitting..." : "Submit for approval"}</button>
         </form>}

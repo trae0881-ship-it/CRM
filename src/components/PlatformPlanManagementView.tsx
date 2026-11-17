@@ -82,7 +82,7 @@ export function PlatformPlanManagementView({ plans, onChanged, onNotify }: Props
   return <>
     <section className="card table-card">
       <div className="card-header">
-        <div><h2>Subscription plans</h2><p>Prices, limits and gated features are stored and enforced server-side.</p></div>
+        <div><h2>Subscription plans</h2><p>Active plans with at least one nonzero price are offered for new workspace requests.</p></div>
         <button className="button primary" onClick={() => setForm(blankForm())}><Plus size={16} /> Add plan</button>
       </div>
       <div className="table-toolbar">

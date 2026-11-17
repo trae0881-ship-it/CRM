@@ -178,10 +178,14 @@ export async function inviteMember(organizationId: string, email: string, role: 
   return data;
 }
 
-export async function listAvailableSubscriptionPlans(): Promise<AvailableSubscriptionPlan[]> {
-  const { data, error } = await requireClient().from("subscription_plans")
+export async function listAvailableSubscriptionPlans(options: { paidOnly?: boolean } = {}): Promise<AvailableSubscriptionPlan[]> {
+  let query = requireClient().from("subscription_plans")
     .select("id,code,name,description,currency_code,price_monthly,price_quarterly,price_half_yearly,price_yearly,max_users,max_salespeople,max_managers,max_admins,max_leads,trial_days,validity_days,features")
     .eq("is_active", true).order("price_monthly");
+  if (options.paidOnly) {
+    query = query.or("price_monthly.gt.0,price_quarterly.gt.0,price_half_yearly.gt.0,price_yearly.gt.0");
+  }
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []) as AvailableSubscriptionPlan[];
 }
