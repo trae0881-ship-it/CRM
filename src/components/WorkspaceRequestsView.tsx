@@ -15,6 +15,15 @@ const cyclePrices: Record<BillingPeriod, keyof Pick<PlatformPlan, "price_monthly
   monthly: "price_monthly", quarterly: "price_quarterly", half_yearly: "price_half_yearly", yearly: "price_yearly",
 };
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
+    const code = "code" in error && typeof error.code === "string" ? ` (${error.code})` : "";
+    return `${error.message}${code}`;
+  }
+  return fallback;
+}
+
 export function WorkspaceRequestsView({ plans, onChanged, onNotify }: Props) {
   const [requests, setRequests] = useState<PlatformWorkspaceRequest[]>([]);
   const [selected, setSelected] = useState<PlatformWorkspaceRequest | null>(null);
@@ -36,14 +45,10 @@ export function WorkspaceRequestsView({ plans, onChanged, onNotify }: Props) {
   const [busy, setBusy] = useState(false);
   const pageSize = 10;
 
-  const load = async () => {
-    try {
-      setRequests(await listPlatformWorkspaceRequests());
-    } catch (error) {
-      onNotify(error instanceof Error ? error.message : "Workspace requests could not be loaded.");
-    }
-  };
-  useEffect(() => { void load(); }, []);
+  const load = async () => setRequests(await listPlatformWorkspaceRequests());
+  useEffect(() => {
+    void load().catch((error: unknown) => onNotify(getErrorMessage(error, "Workspace requests could not be loaded.")));
+  }, []);
 
   const filtered = useMemo(() => requests.filter((request) => {
     const text = `${request.company_name} ${request.workspace_name} ${request.requester_name || ""} ${request.requester_email}`.toLowerCase();
@@ -78,13 +83,15 @@ export function WorkspaceRequestsView({ plans, onChanged, onNotify }: Props) {
     event.preventDefault();
     if (!selected) return;
     setBusy(true);
+    const reviewedRequest = selected;
+    const submittedDecision = decision;
     try {
       await decidePlatformWorkspaceRequest({
-        id: selected.id, decision,
-        planId: decision === "approve" ? planId : undefined,
+        id: reviewedRequest.id, decision: submittedDecision,
+        planId: submittedDecision === "approve" ? planId : undefined,
         billingPeriod: period,
         subscriptionStatus: status,
-        salespersonLimit: decision === "approve" && customLimit ? Number(salespersonLimit) : null,
+        salespersonLimit: submittedDecision === "approve" && customLimit ? Number(salespersonLimit) : null,
         manualPaymentConfirmed,
         manualPaymentAmount: paymentAmount ? Number(paymentAmount) : null,
         manualPaymentCurrency: paymentCurrency.trim().toUpperCase() || null,
@@ -92,16 +99,33 @@ export function WorkspaceRequestsView({ plans, onChanged, onNotify }: Props) {
         adminMessage: adminMessage.trim(),
         rejectionReason: rejectionReason.trim(),
       });
-      setSelected(null);
-      await Promise.all([load(), onChanged()]);
-      onNotify(decision === "approve"
-        ? "Workspace approved. The owner membership and configured subscription were created."
-        : decision === "reject" ? "Workspace request rejected with a recorded reason." : "Request for more information recorded.");
     } catch (error) {
-      onNotify(error instanceof Error ? error.message : "Workspace request could not be updated.");
-    } finally {
+      onNotify(getErrorMessage(error, "Workspace request could not be updated."));
       setBusy(false);
+      return;
     }
+
+    const nextStatus = submittedDecision === "approve" ? "approved"
+      : submittedDecision === "reject" ? "rejected" : "information_requested";
+    setRequests((current) => current.map((request) => request.id === reviewedRequest.id ? {
+      ...request,
+      status: nextStatus,
+      admin_message: adminMessage.trim() || null,
+      rejection_reason: submittedDecision === "reject" ? rejectionReason.trim() : request.rejection_reason,
+    } : request));
+    setSelected(null);
+
+    const successMessage = submittedDecision === "approve"
+      ? "Workspace approved. The owner membership and configured subscription were created."
+      : submittedDecision === "reject" ? "Workspace request rejected with a recorded reason." : "Request for more information recorded.";
+    const refreshResults = await Promise.allSettled([load(), onChanged()]);
+    const refreshFailure = refreshResults.find((result) => result.status === "rejected");
+    if (refreshFailure?.status === "rejected") {
+      onNotify(`${successMessage} Refresh failed: ${getErrorMessage(refreshFailure.reason, "Could not reload workspace data.")}`);
+    } else {
+      onNotify(successMessage);
+    }
+    setBusy(false);
   };
 
   return <>

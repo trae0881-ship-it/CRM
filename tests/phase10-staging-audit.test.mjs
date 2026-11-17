@@ -49,3 +49,24 @@ test("tenant-owned Phase 9 objects have RLS and pipeline RPC grants", async () =
   assert.match(hardening, /grant execute on function public\.move_lead_to_pipeline_stage/);
   assert.match(hardening, /revoke all on function public\.move_lead_to_pipeline_stage/);
 });
+
+test("salesperson limit RPC assigns the subscription row and previous limit separately", async () => {
+  const lifecycle = await readFile(new URL("../supabase/migrations/20261116161000_subscription_workspace_lifecycle.sql", import.meta.url), "utf8");
+  const functionBody = lifecycle.slice(
+    lifecycle.indexOf("create or replace function public.platform_update_salesperson_limit"),
+    lifecycle.indexOf("create or replace function public.platform_configure_subscription"),
+  );
+  assert.match(functionBody, /select s\.\* into subscription_row[\s\S]*?for update;/);
+  assert.match(functionBody, /into previous_limit[\s\S]*?where p\.id = subscription_row\.plan_id;/);
+  assert.doesNotMatch(functionBody, /into subscription_row,\s*previous_limit/);
+});
+
+test("platform dashboard stats closes the expired-subscription subquery", async () => {
+  const lifecycle = await readFile(new URL("../supabase/migrations/20261116161000_subscription_workspace_lifecycle.sql", import.meta.url), "utf8");
+  const statsStart = lifecycle.indexOf("create or replace function public.platform_dashboard_stats");
+  const statsBody = lifecycle.slice(
+    statsStart,
+    lifecycle.indexOf("create or replace function public.platform_upsert_subscription(", statsStart),
+  );
+  assert.match(statsBody, /end <= now\(\)[)]{3},\s*'recurring_revenue'/);
+});

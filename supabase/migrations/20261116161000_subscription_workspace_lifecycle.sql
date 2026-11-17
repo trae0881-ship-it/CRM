@@ -800,11 +800,18 @@ begin
   if target_limit < 0 or nullif(trim(change_reason), '') is null then raise exception 'A non-negative limit and reason are required'; end if;
   perform 1 from public.organizations where id = target_organization for update;
   if not found then raise exception 'Workspace was not found'; end if;
-  select s.*, case when s.has_custom_salesperson_limit then s.salesperson_limit_override else p.max_salespeople end
-    into subscription_row, previous_limit
-    from public.subscriptions s join public.subscription_plans p on p.id = s.plan_id
-    where s.organization_id = target_organization for update of s;
+  select s.* into subscription_row
+    from public.subscriptions s
+    where s.organization_id = target_organization
+    for update;
   if subscription_row.id is null then raise exception 'Workspace has no subscription'; end if;
+  select case
+      when subscription_row.has_custom_salesperson_limit then subscription_row.salesperson_limit_override
+      else p.max_salespeople
+    end
+    into previous_limit
+    from public.subscription_plans p
+    where p.id = subscription_row.plan_id;
   update public.subscriptions set has_custom_salesperson_limit = true,
     salesperson_limit_override = target_limit, updated_at = now()
     where id = subscription_row.id returning * into subscription_row;
@@ -1158,7 +1165,7 @@ begin
     'expired_subscriptions', (select count(*) from public.subscriptions
       where status in ('expired','cancelled') or (status in ('active','trialing')
         and (case when status = 'trialing' then coalesce(trial_ends_at, current_period_end)
-          else current_period_end end <= now())),
+          else current_period_end end <= now()))),
     'recurring_revenue', (
       select case when count(distinct p.currency_code) = 1
         then sum(case s.billing_period
