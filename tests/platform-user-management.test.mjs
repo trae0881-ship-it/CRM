@@ -58,6 +58,7 @@ test("platform user routes require verified platform access and are wired to the
   assert.match(server, /verifyPlatformSuperAdmin\(token\)/);
   assert.match(server, /url\.pathname === "\/platform\/users"/);
   assert.ok(routes.some((route) => route.route === "/saas/admin/users" && route.visibility === "Verified Super Admin"));
-  assert.match(app, /isPlatformUsersPath\(path\)/);
+  assert.match(app, /canAccessDashboardRoute\(routePath, membership\.role, membership\.is_active\)/);
+  assert.match(app, /isSaasAdminPath\(routePath\).*membership\.role !== "super_admin"/);
   assert.match(app, /view === "Users" && membership\?\.role === "super_admin"/);
 });

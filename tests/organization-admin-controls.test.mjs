@@ -5,10 +5,12 @@ import test from "node:test";
 const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
 const controls = await readFile(new URL("../src/components/OrganizationAdminControls.tsx", import.meta.url), "utf8");
 const workspace = await readFile(new URL("../src/services/workspace.ts", import.meta.url), "utf8");
+const roleRoutes = await readFile(new URL("../src/lib/roleRoutes.ts", import.meta.url), "utf8");
 
 test("organization settings and activity are wired to RLS-protected tenant records", () => {
   assert.match(app, /OrganizationAdminControls organizationId=\{membership\.organization_id\}/);
-  assert.match(app, /membership\?\.role === "company_owner" \|\| membership\?\.role === "organization_admin".*Organization settings/);
+  assert.match(roleRoutes, /path: "\/org\/settings", label: "Organization Settings", area: "organization", view: "Organization Settings", roles: ownersAndAdmins/);
+  assert.match(app, /view === "Organization Settings" && membership/);
   assert.match(controls, /getOrganizationSettings\(organizationId\)/);
   assert.match(controls, /saveOrganizationSettings\(organizationId, settings\)/);
   assert.match(controls, /listOrganizationAudit\(organizationId\)/);

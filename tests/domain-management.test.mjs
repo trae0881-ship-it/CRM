@@ -20,15 +20,17 @@ test("domain verification accepts public hostnames and rejects local or malforme
 
 test("domain admin pages are rendered only for active Super Admin memberships", async () => {
   const app = await read("src/App.tsx");
-  assert.match(app, /new Set\(\["\/saas\/admin\/domains", "\/saas\/admin\/domains\/links"\]\)/);
-  assert.match(app, /membership\.role !== "super_admin" \|\| !membership\.is_active/);
+  const roleRoutes = await read("src/lib/roleRoutes.ts");
+  assert.match(roleRoutes, /path: "\/saas\/admin\/domains", label: "Custom Domains", area: "saas", view: "Platform", roles: platformRoles/);
+  assert.match(roleRoutes, /path: "\/saas\/admin\/domains\/links", label: "Domain Links", area: "saas", view: "Platform", roles: platformRoles/);
+  assert.match(app, /canAccessDashboardRoute\(routePath, membership\.role, membership\.is_active\)/);
   assert.match(app, /<DomainManagementView/);
   assert.match(app, /<DomainLinksView/);
-  assert.match(app, /applyRouteMetadata\(window\.location\.pathname, Boolean\(session\)\)[\s\S]*?\}, \[session\]\)/);
+  assert.match(app, /applyRouteMetadata\(routePath, Boolean\(session\)\)[\s\S]*?\}, \[routePath, session\]\)/);
   const api = await read("mysql/services/server.mjs");
   assert.match(api, /verifyPlatformSuperAdmin\(token\)/);
   assert.match(api, /const access = await platformActor\(request\)/);
-  assert.match(app, /Domains \/ Custom Domains/);
+  assert.match(app, /label: "Custom Domains"/);
   const view = await read("src/components/DomainManagementView.tsx");
   assert.match(view, /Add Domain/);
   assert.match(view, /Copy Host/);
