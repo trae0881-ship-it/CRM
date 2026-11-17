@@ -1,6 +1,8 @@
 import { supabase } from "../lib/supabase";
 import { buildLeadSearchFilter } from "../lib/leadSearch.mjs";
+import { normalizeEmail, normalizePhone } from "../lib/googleSheetsSync";
 import type { LeadEvent, LeadRecord, LeadStatus } from "../types/database";
+import type { LeadCsvRecord } from "../lib/leadCsvImport";
 
 export type CreateLeadInput = Pick<LeadRecord, "full_name"> & Partial<Omit<LeadRecord, "id" | "organization_id" | "created_at" | "updated_at" | "external_id">>;
 export type LeadPage = { records: LeadRecord[]; totalCount: number | null };
@@ -35,6 +37,82 @@ export async function createLead(input: CreateLeadInput): Promise<LeadRecord> {
   const { data, error } = await client.from("leads").insert({ ...input, organization_id: membership.organization_id }).select("*").single();
   if (error) throw error;
   return data as LeadRecord;
+}
+
+export async function bulkCreateLeads(organizationId: string, rows: LeadCsvRecord[]): Promise<{ imported: number; duplicates: number; error?: string }> {
+  if (!rows.length) return { imported: 0, duplicates: 0 };
+  const client = requireClient();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  if (!userData.user) throw new Error("Sign in again before importing leads.");
+  const { data: membership, error: membershipError } = await client
+    .from("organization_members")
+    .select("role")
+    .eq("organization_id", organizationId)
+    .eq("user_id", userData.user.id)
+    .eq("is_active", true)
+    .single();
+  if (membershipError) throw membershipError;
+  if (!membership || !["company_owner", "organization_admin"].includes(membership.role)) {
+    throw new Error("Only the company owner or organization admin can bulk import leads.");
+  }
+
+  const existingEmails = new Set<string>();
+  const existingPhones = new Set<string>();
+  const emails = [...new Set(rows.flatMap((row) => row.email ? [row.email] : []))];
+  for (let offset = 0; offset < emails.length; offset += 100) {
+    const { data, error } = await client
+      .from("leads")
+      .select("email")
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null)
+      .in("email", emails.slice(offset, offset + 100));
+    if (error) throw error;
+    for (const lead of data ?? []) {
+      const normalized = normalizeEmail(lead.email);
+      if (normalized) existingEmails.add(normalized);
+    }
+  }
+  const phones = [...new Set(rows.flatMap((row) => row.phone ? [row.phone] : []))];
+  for (let offset = 0; offset < phones.length; offset += 100) {
+    const { data, error } = await client
+      .from("leads")
+      .select("phone")
+      .eq("organization_id", organizationId)
+      .is("deleted_at", null)
+      .in("phone", phones.slice(offset, offset + 100));
+    if (error) throw error;
+    for (const lead of data ?? []) {
+      const normalized = normalizePhone(lead.phone);
+      if (normalized) existingPhones.add(normalized);
+    }
+  }
+  let duplicateCount = 0;
+  const newRows = rows.filter((row) => {
+    const duplicate = Boolean((row.email && existingEmails.has(row.email)) || (row.phone && existingPhones.has(row.phone)));
+    if (duplicate) duplicateCount += 1;
+    return !duplicate;
+  });
+
+  let insertedCount = 0;
+  for (let offset = 0; offset < newRows.length; offset += 100) {
+    const batch = newRows.slice(offset, offset + 100).map((lead) => ({
+      ...lead,
+      organization_id: organizationId,
+      created_by: userData.user.id,
+      updated_by: userData.user.id,
+    }));
+    const { error } = await client.from("leads").insert(batch);
+    if (error) {
+      return {
+        imported: insertedCount,
+        duplicates: duplicateCount,
+        error: `${insertedCount ? `Stopped after importing ${insertedCount} leads. ` : ""}${error.message}`,
+      };
+    }
+    insertedCount += batch.length;
+  }
+  return { imported: insertedCount, duplicates: duplicateCount };
 }
 
 export async function updateLeadStatus(id: string, status: LeadStatus): Promise<void> {
