@@ -444,10 +444,10 @@ function App() {
     `${lead.name} ${lead.company} ${lead.id} ${lead.source}`.toLowerCase().includes(query.toLowerCase()),
   ), [leads, query]);
 
-  const notify = (message: string) => {
+  const notify = useCallback((message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 2600);
-  };
+  }, []);
 
   const addLead = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

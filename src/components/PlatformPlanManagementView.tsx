@@ -2,7 +2,13 @@ import { useMemo, useState, type FormEvent } from "react";
 import { Check, Pencil, Plus, X } from "lucide-react";
 import { savePlatformPlan, type PlatformPlan } from "../services/platform";
 
-type Props = { plans: PlatformPlan[]; onChanged: () => Promise<void>; onNotify: (message: string) => void };
+type Props = {
+  plans: PlatformPlan[];
+  isLoading: boolean;
+  loadError: string;
+  onChanged: () => Promise<void>;
+  onNotify: (message: string) => void;
+};
 type PlanForm = {
   id: string | null; code: string; name: string; description: string; currency: string;
   monthly: string; quarterly: string; halfYearly: string; yearly: string;
@@ -36,7 +42,7 @@ function formFromPlan(plan: PlatformPlan): PlanForm {
   };
 }
 
-export function PlatformPlanManagementView({ plans, onChanged, onNotify }: Props) {
+export function PlatformPlanManagementView({ plans, isLoading, loadError, onChanged, onNotify }: Props) {
   const [form, setForm] = useState<PlanForm | null>(null);
   const [query, setQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
@@ -46,11 +52,19 @@ export function PlatformPlanManagementView({ plans, onChanged, onNotify }: Props
     const matchesActive = activeFilter === "all" || (activeFilter === "active" ? plan.is_active : !plan.is_active);
     return matchesText && matchesActive;
   }), [plans, query, activeFilter]);
+  const hasPaidPrice = form
+    ? [form.monthly, form.quarterly, form.halfYearly, form.yearly].some((price) => Number(price) > 0)
+    : false;
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
     if (!form) return;
+    if (hasPaidPrice && !/^[A-Z]{3}$/.test(form.currency.trim().toUpperCase())) {
+      onNotify("Enter a three-letter currency code for a paid plan.");
+      return;
+    }
     setBusy(true);
+    let saved = false;
     try {
       await savePlatformPlan({
         id: form.id, code: form.code.trim().toLowerCase(), name: form.name.trim(),
@@ -69,11 +83,15 @@ export function PlatformPlanManagementView({ plans, onChanged, onNotify }: Props
           automation: form.automation,
         },
       });
+      saved = true;
       setForm(null);
       await onChanged();
       onNotify(form.id ? "Subscription plan updated." : "Subscription plan created.");
     } catch (error) {
-      onNotify(error instanceof Error ? error.message : "Subscription plan could not be saved.");
+      const details = error instanceof Error ? error.message : "Unknown error.";
+      onNotify(saved
+        ? `Plan saved, but the list could not be refreshed: ${details}`
+        : `Subscription plan could not be saved: ${details}`);
     } finally {
       setBusy(false);
     }
@@ -91,6 +109,7 @@ export function PlatformPlanManagementView({ plans, onChanged, onNotify }: Props
           <option value="all">All plans</option><option value="active">Active</option><option value="inactive">Inactive</option>
         </select>
       </div>
+      {loadError && <p className="muted" role="alert">Plans could not be loaded: {loadError} <button className="button secondary" onClick={() => void onChanged().catch((error: unknown) => onNotify(error instanceof Error ? error.message : "Subscription plans could not be loaded."))}>Retry</button></p>}
       <div className="table-scroll"><table><thead><tr><th>PLAN</th><th>PRICE / MONTH</th><th>USER LIMITS</th><th>TRIAL</th><th>FEATURE ACCESS</th><th>STATUS</th><th>ACTION</th></tr></thead><tbody>
         {shownPlans.map((plan) => <tr key={plan.id}>
           <td><strong>{plan.name}</strong><small className="table-secondary">{plan.code}</small></td>
@@ -101,7 +120,7 @@ export function PlatformPlanManagementView({ plans, onChanged, onNotify }: Props
           <td>{plan.is_active ? "Active" : "Inactive"}</td>
           <td><button className="button secondary" onClick={() => setForm(formFromPlan(plan))}><Pencil size={14} /> Edit</button></td>
         </tr>)}
-        {shownPlans.length === 0 && <tr><td colSpan={7}>No matching plans.</td></tr>}
+        {shownPlans.length === 0 && <tr><td colSpan={7}>{isLoading ? "Loading plans…" : loadError ? "Plans are unavailable until loading succeeds." : "No matching plans."}</td></tr>}
       </tbody></table></div>
     </section>
 
@@ -114,7 +133,7 @@ export function PlatformPlanManagementView({ plans, onChanged, onNotify }: Props
         </div>
         <label>Description<textarea maxLength={1000} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
         <div className="contact-field-grid">
-          <label>Currency code<input maxLength={3} pattern="[A-Za-z]{3}" placeholder="Required for paid plans" value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value.toUpperCase() })} /></label>
+          <label>Currency code<input required={hasPaidPrice} maxLength={3} pattern="[A-Za-z]{3}" placeholder="Required for paid plans" value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value.toUpperCase() })} /></label>
           <label>Renewal behavior<select value={form.renewal} onChange={(event) => setForm({ ...form, renewal: event.target.value as PlanForm["renewal"] })}><option value="manual">Manual renewal</option><option value="contact_required">Contact Adometa</option></select></label>
         </div>
         <div className="contact-field-grid plan-price-grid">
