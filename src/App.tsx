@@ -3,7 +3,7 @@ import {
   ArrowUpRight, BarChart3, Bell, CalendarDays, Check, ChevronDown, CircleHelp,
   ClipboardList, Clock3, Filter, LayoutDashboard, Menu, MoreHorizontal, Phone,
   Plus, Search, Settings, Target, TrendingUp, Users, X, Zap, Headphones, LogOut,
-  UsersRound, PieChart, Plug, ShieldCheck,
+  UsersRound, PieChart, Plug, ShieldCheck, MessageCircle,
   Building2, UserPlus, Wrench, Bot, Database, Globe2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -29,6 +29,7 @@ const StatusSettingsView = lazy(() => import("./components/OperationsViews").the
 const PlatformAdminView = lazy(() => import("./components/PlatformAdminView").then((module) => ({ default: module.PlatformAdminView })));
 const PlatformUserManagementView = lazy(() => import("./components/PlatformUserManagementView").then((module) => ({ default: module.PlatformUserManagementView })));
 const CompanyAdminView = lazy(() => import("./components/CompanyAdminView").then((module) => ({ default: module.CompanyAdminView })));
+const GoogleSheetsView = lazy(() => import("./components/GoogleSheetsView").then((module) => ({ default: module.GoogleSheetsView })));
 const GrowthToolsView = lazy(() => import("./components/GrowthToolsView").then((module) => ({ default: module.GrowthToolsView })));
 const LicenseRegisterView = lazy(() => import("./components/GrowthToolsView").then((module) => ({ default: module.LicenseRegisterView })));
 const AutomationView = lazy(() => import("./components/AutomationView").then((module) => ({ default: module.AutomationView })));
@@ -619,7 +620,7 @@ function App() {
           {view === "Reports" && (membership ? <ReportsView membership={membership} onNotify={notify} /> : <ModulePending eyebrow="ANALYTICS" title="Reports & analytics" description="An authenticated organization membership is required." icon={<PieChart size={24} />} />)}
           {view === "Notifications" && (membership ? <NotificationsView membership={membership} onNotify={notify} onUnreadCount={setUnreadNotifications} /> : <ModulePending eyebrow="ACTIVITY CENTER" title="Notifications" description="An authenticated organization membership is required." icon={<Bell size={24} />} />)}
           {view === "Statuses" && (membership?.role === "company_owner" || membership?.role === "organization_admin" ? <StatusSettingsView membership={membership} onNotify={notify} /> : <ModulePending eyebrow="WORKSPACE SETTINGS" title="Lead statuses" description="Only company owners and organization admins can manage statuses." icon={<Settings size={24} />} />)}
-          {view === "Integrations" && <Integrations onNotify={notify} />}
+          {view === "Integrations" && membership && <Integrations membership={membership} onNotify={notify} />}
           </Suspense>
         </div>
       </main>
@@ -667,8 +668,28 @@ function PlatformSettingsView({ onOpenDomains, onOpenDatabase }: { onOpenDomains
   return <><PageHeader eyebrow="PLATFORM CONFIGURATION" title="Platform settings" description="Platform-level settings remain protected and are changed only through verified administration workflows." /><section className="card pending-module"><h2>Configuration ownership</h2><p className="muted">Custom-domain and canonical URL settings are managed in Domain Management. Database connection credentials are deployment-managed and are not exposed in the browser.</p><div className="integration-actions"><button className="button secondary" onClick={onOpenDomains}><Globe2 size={16} /> Custom Domains</button><button className="button secondary" onClick={onOpenDatabase}><Database size={16} /> Database Monitoring</button></div></section></>;
 }
 
-function Integrations({ onNotify }: { onNotify: (message: string) => void }) {
-  return <><PageHeader eyebrow="CONNECTED SYSTEMS" title="Integrations" description="Bring every lead source into one secure workspace." /><div className="integration-hero"><div><span className="integration-badge"><span /> COMING SOON — NOT CONNECTED</span><h2>Meta Lead Ads</h2><p>Meta Lead Ads is intentionally disabled. Google Sheets is the approved external lead-import method for this phase.</p><div className="integration-actions"><button className="button secondary" disabled onClick={() => onNotify("Meta Lead Ads is not available")}>Connect Meta account</button><button className="button secondary" disabled>Test connection</button></div></div><div className="meta-mark">f</div></div><div className="integration-grid"><div className="card integration-card"><div className="integration-card-head"><div className="integration-small-icon"><Users size={18} /></div><div><h3>Facebook Pages</h3><p>Not connected</p></div></div><strong>—</strong><small>Meta integration is deferred.</small></div><div className="card integration-card"><div className="integration-card-head"><div className="integration-small-icon"><ClipboardList size={18} /></div><div><h3>Instant Forms</h3><p>Not connected</p></div></div><strong>—</strong><small>Meta integration is deferred.</small></div><div className="card integration-card"><div className="integration-card-head"><div className="integration-small-icon"><TrendingUp size={18} /></div><div><h3>Leads received</h3><p>Not connected</p></div></div><strong>—</strong><small>No Meta data is imported.</small></div></div><section className="card integration-log"><div className="card-header"><div><h2>Webhook health</h2><p>Meta Lead Ads is not enabled in this phase.</p></div><span className="status pending">Not connected</span></div><div className="empty-state"><Plug size={24} /><strong>Coming Soon — Not Connected</strong><p>No Meta account, token or webhook has been requested.</p></div></section></>;
+function Integrations({ membership, onNotify }: { membership: Membership; onNotify: (message: string) => void }) {
+  return <>
+    <PageHeader eyebrow="CONNECTED SYSTEMS" title="Integrations" description="Manage the available lead import and messaging workflows for this organization." />
+    <GoogleSheetsView membership={membership} onNotify={onNotify} />
+    <section className="card integration-whatsapp" aria-labelledby="whatsapp-integration-title">
+      <div className="card-header">
+        <div className="integration-card-head">
+          <div className="integration-small-icon"><MessageCircle size={18} /></div>
+          <div><h2 id="whatsapp-integration-title">WhatsApp</h2><p>Organization messaging options</p></div>
+        </div>
+        <span className="status pending">Business API not connected</span>
+      </div>
+      <p className="muted">Personal click-to-chat is available from lead records. WhatsApp Business API messaging, delivery tracking, and credential setup are not configured.</p>
+      <div className="integration-actions">
+        <a className="button secondary" href="/org/leads"><Users size={16} /> Open lead records</a>
+        <a className="button secondary" href="/admin/docs#whatsapp-business-setup"><ArrowUpRight size={16} /> Business API setup guide</a>
+      </div>
+    </section>
+    <div className="integration-hero"><div><span className="integration-badge"><span /> COMING SOON — NOT CONNECTED</span><h2>Meta Lead Ads</h2><p>Meta Lead Ads is intentionally disabled. Google Sheets is the approved external lead-import method for this phase.</p><div className="integration-actions"><button className="button secondary" disabled onClick={() => onNotify("Meta Lead Ads is not available")}>Connect Meta account</button><button className="button secondary" disabled>Test connection</button></div></div><div className="meta-mark">f</div></div>
+    <div className="integration-grid"><div className="card integration-card"><div className="integration-card-head"><div className="integration-small-icon"><Users size={18} /></div><div><h3>Facebook Pages</h3><p>Not connected</p></div></div><strong>—</strong><small>Meta integration is deferred.</small></div><div className="card integration-card"><div className="integration-card-head"><div className="integration-small-icon"><ClipboardList size={18} /></div><div><h3>Instant Forms</h3><p>Not connected</p></div></div><strong>—</strong><small>Meta integration is deferred.</small></div><div className="card integration-card"><div className="integration-card-head"><div className="integration-small-icon"><TrendingUp size={18} /></div><div><h3>Leads received</h3><p>Not connected</p></div></div><strong>—</strong><small>No Meta data is imported.</small></div></div>
+    <section className="card integration-log"><div className="card-header"><div><h2>Webhook health</h2><p>Meta Lead Ads is not enabled in this phase.</p></div><span className="status pending">Not connected</span></div><div className="empty-state"><Plug size={24} /><strong>Coming Soon — Not Connected</strong><p>No Meta account, token or webhook has been requested.</p></div></section>
+  </>;
 }
 
 function PublicPage({ path }: { path: string }) {
