@@ -20,7 +20,9 @@ function getErrorMessage(error: unknown, fallback: string) {
   if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
     const code = "code" in error && typeof error.code === "string" ? error.code : "";
     const details = "details" in error && typeof error.details === "string" ? ` ${error.details}` : "";
-    const migrationHint = ["PGRST202", "42883", "42703", "42P01", "42704"].includes(code)
+    const missingLifecycleObject = ["PGRST202", "42883", "42703", "42704"].includes(code)
+      || (code === "42P01" && /relation .* does not exist/i.test(error.message));
+    const migrationHint = missingLifecycleObject
       ? " Confirm the lifecycle migration completed successfully in this Supabase project."
       : "";
     return `${error.message}${code ? ` (${code})` : ""}${details}${migrationHint}`;
