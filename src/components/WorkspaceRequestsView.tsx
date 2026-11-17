@@ -16,12 +16,16 @@ const cyclePrices: Record<BillingPeriod, keyof Pick<PlatformPlan, "price_monthly
 };
 
 function getErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
   if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") {
-    const code = "code" in error && typeof error.code === "string" ? ` (${error.code})` : "";
-    return `${error.message}${code}`;
+    const code = "code" in error && typeof error.code === "string" ? error.code : "";
+    const details = "details" in error && typeof error.details === "string" ? ` ${error.details}` : "";
+    const migrationHint = ["PGRST202", "42883", "42703", "42P01", "42704"].includes(code)
+      ? " Confirm the lifecycle migration completed successfully in this Supabase project."
+      : "";
+    return `${error.message}${code ? ` (${code})` : ""}${details}${migrationHint}`;
   }
-  return fallback;
+  return error instanceof Error ? error.message : `${fallback} Confirm the lifecycle migration completed successfully in this Supabase project.`;
 }
 
 export function WorkspaceRequestsView({ plans, onChanged, onNotify }: Props) {
@@ -43,6 +47,7 @@ export function WorkspaceRequestsView({ plans, onChanged, onNotify }: Props) {
   const [statusFilter, setStatusFilter] = useState("open");
   const [page, setPage] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const pageSize = 10;
 
   const load = async () => setRequests(await listPlatformWorkspaceRequests());
@@ -64,6 +69,7 @@ export function WorkspaceRequestsView({ plans, onChanged, onNotify }: Props) {
 
   const openReview = (request: PlatformWorkspaceRequest) => {
     setSelected(request);
+    setSaveError("");
     setDecision("approve");
     const initialPlan = plans.find((plan) => plan.id === request.requested_plan_id && plan.is_active) || plans.find((plan) => plan.is_active);
     setPlanId(initialPlan?.id || "");
@@ -83,6 +89,7 @@ export function WorkspaceRequestsView({ plans, onChanged, onNotify }: Props) {
     event.preventDefault();
     if (!selected) return;
     setBusy(true);
+    setSaveError("");
     const reviewedRequest = selected;
     const submittedDecision = decision;
     try {
@@ -100,7 +107,9 @@ export function WorkspaceRequestsView({ plans, onChanged, onNotify }: Props) {
         rejectionReason: rejectionReason.trim(),
       });
     } catch (error) {
-      onNotify(getErrorMessage(error, "Workspace request could not be updated."));
+      const message = getErrorMessage(error, "Approval failed without a server error message.");
+      setSaveError(message);
+      onNotify(message);
       setBusy(false);
       return;
     }
@@ -121,7 +130,9 @@ export function WorkspaceRequestsView({ plans, onChanged, onNotify }: Props) {
     const refreshResults = await Promise.allSettled([load(), onChanged()]);
     const refreshFailure = refreshResults.find((result) => result.status === "rejected");
     if (refreshFailure?.status === "rejected") {
-      onNotify(`${successMessage} Refresh failed: ${getErrorMessage(refreshFailure.reason, "Could not reload workspace data.")}`);
+      const message = `${successMessage} Refresh failed: ${getErrorMessage(refreshFailure.reason, "Could not reload workspace data.")}`;
+      setSaveError(message);
+      onNotify(message);
     } else {
       onNotify(successMessage);
     }
@@ -131,6 +142,7 @@ export function WorkspaceRequestsView({ plans, onChanged, onNotify }: Props) {
   return <>
     <section className="card table-card">
       <div className="card-header"><div><h2>Workspace approval requests</h2><p>Unapproved workspaces have no CRM membership. Paid plans require manual payment confirmation.</p></div><ClipboardList size={18} /></div>
+      {saveError && <p className="muted" role="alert">{saveError}</p>}
       <div className="table-toolbar">
         <input aria-label="Search workspace requests" placeholder="Search company, workspace or requester" value={query} onChange={(event) => { setQuery(event.target.value); setPage(0); }} />
         <select aria-label="Filter workspace requests" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(0); }}>

@@ -23,7 +23,7 @@ test("workspace approval RPC parameters match its database function and platform
 });
 
 test("approval success is not reported as failure when subsequent refresh fails", () => {
-  assert.match(component, /await decidePlatformWorkspaceRequest\([\s\S]*?catch \(error\)[\s\S]*?getErrorMessage\(error, "Workspace request could not be updated\."\)/);
+  assert.match(component, /await decidePlatformWorkspaceRequest\([\s\S]*?catch \(error\)[\s\S]*?getErrorMessage\(error, "Approval failed without a server error message\."\)/);
   assert.match(component, /setRequests\(\(current\) => current\.map/);
   assert.match(component, /Promise\.allSettled\(\[load\(\), onChanged\(\)\]\)/);
   assert.match(component, /Refresh failed: \$\{getErrorMessage/);
@@ -32,4 +32,6 @@ test("approval success is not reported as failure when subsequent refresh fails"
 test("workspace approval surfaces database error messages and error codes", () => {
   assert.match(component, /"message" in error && typeof error\.message === "string"/);
   assert.match(component, /"code" in error && typeof error\.code === "string"/);
+  assert.match(component, /Confirm the lifecycle migration completed successfully in this Supabase project/);
+  assert.match(component, /saveError && <p className="muted" role="alert">/);
 });
