@@ -1,6 +1,6 @@
 import { supabase } from "../lib/supabase";
 import { isOrganizationId } from "../lib/organizationId";
-import type { GoogleLeadMapping } from "../lib/googleSheetsSync";
+import { googleSheetsErrorMessage, type GoogleLeadMapping } from "../lib/googleSheetsSync";
 
 const client = () => {
   if (!supabase) throw new Error("Supabase is not configured.");
@@ -67,13 +67,13 @@ export async function startGoogleOAuth(organizationId: string) {
 
 export async function listGoogleSheetIntegrations(organizationId: string) {
   const { data, error } = await client().from("google_sheet_integrations").select("*").eq("organization_id", organizationId).order("created_at", { ascending: false });
-  if (error) throw error;
+  if (error) throw new Error(googleSheetsErrorMessage(error, "Google Sheets integrations could not be loaded."));
   return (data ?? []) as GoogleSheetIntegration[];
 }
 
 export async function updateGoogleSheetSettings(id: string, patch: { spreadsheet_id?: string; worksheet_id?: string | null; worksheet_name?: string; column_mapping?: GoogleLeadMapping; auto_sync?: boolean; sync_frequency_minutes?: number; row_limit?: number }) {
   const { data, error } = await client().from("google_sheet_integrations").update(patch).eq("id", id).select("*").single();
-  if (error) throw error;
+  if (error) throw new Error(googleSheetsErrorMessage(error, "Google Sheets settings could not be saved."));
   return data as GoogleSheetIntegration;
 }
 
@@ -87,7 +87,7 @@ export async function previewGoogleSheet(id: string) {
 
 export async function listGoogleSyncRuns(organizationId: string) {
   const { data, error } = await client().from("google_sheet_sync_runs").select("*").eq("organization_id", organizationId).order("started_at", { ascending: false }).limit(25);
-  if (error) throw error;
+  if (error) throw new Error(googleSheetsErrorMessage(error, "Google Sheets sync history could not be loaded."));
   return data ?? [];
 }
 

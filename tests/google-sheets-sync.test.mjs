@@ -21,6 +21,17 @@ test("Google Sheets links and IDs normalize to a spreadsheet ID", async () => {
   assert.throws(() => normalize("https://example.com/spreadsheets/d/sheet_id-123"), /Google Sheets link/);
 });
 
+test("Google Sheets errors expose Supabase details instead of masking them", async () => {
+  const helper = await readFile(new URL("../src/lib/googleSheetsSync.ts", import.meta.url), "utf8");
+  const compiled = ts.transpileModule(helper, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
+  const exports = {};
+  runInNewContext(compiled, { exports, URL, URLSearchParams, Error, Set });
+
+  assert.equal(exports.googleSheetsErrorMessage({ message: "Update denied", details: "RLS policy rejected row", hint: "Check org role" }, "Fallback"), "Update denied — RLS policy rejected row — Check org role");
+  assert.equal(exports.googleSheetsErrorMessage(new Error("Google API denied access"), "Fallback"), "Google API denied access");
+  assert.equal(exports.googleSheetsErrorMessage({ code: 403 }, "Fallback"), "Fallback");
+});
+
 test("Google Sheets lead mapping defines contact normalization and validation", async () => {
   const helper = await readFile(new URL("../src/lib/googleSheetsSync.ts", import.meta.url), "utf8");
   assert.match(helper, /normalizePhone/);

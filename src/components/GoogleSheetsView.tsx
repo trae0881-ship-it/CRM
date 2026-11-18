@@ -3,7 +3,7 @@ import { CheckCircle2, Link2, RefreshCw, Unplug } from "lucide-react";
 import type { Membership } from "../services/workspace";
 import { isOrganizationId } from "../lib/organizationId";
 import { disconnectGoogleSheet, listGoogleSheetIntegrations, listGoogleSyncRuns, previewGoogleSheet, startGoogleOAuth, syncGoogleSheet, updateGoogleSheetSettings, type GoogleSheetIntegration, type GoogleSheetSyncResult } from "../services/googleSheets";
-import { parseGoogleSpreadsheetReference, type GoogleLeadMapping } from "../lib/googleSheetsSync";
+import { googleSheetsErrorMessage, parseGoogleSpreadsheetReference, type GoogleLeadMapping } from "../lib/googleSheetsSync";
 
 const defaultMapping: GoogleLeadMapping = { full_name: "Full Name", phone: "Phone", email: "Email", city: "City", state: "State", source: "Source" };
 
@@ -60,7 +60,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
       }
       setRuns(await listGoogleSyncRuns(membership.organization_id));
     }
-    catch (error) { onNotify(error instanceof Error ? error.message : "Google Sheets data could not be loaded."); }
+    catch (error) { onNotify(googleSheetsErrorMessage(error, "Google Sheets data could not be loaded.")); }
   };
   useEffect(() => {
     void load();
@@ -104,7 +104,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
     } catch (error) {
       popup.close();
       popupRef.current = null;
-      onNotify(error instanceof Error ? error.message : "Google authorization could not start.");
+      onNotify(googleSheetsErrorMessage(error, "Google authorization could not start."));
     } finally { setBusy(false); }
   };
   const saveSettings = async (integration: GoogleSheetIntegration, autoSync = integration.auto_sync, input = spreadsheetInput, mappingToSave = mapping, worksheetNameToSave = worksheetName) => {
@@ -120,7 +120,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
   const save = async (integration: GoogleSheetIntegration, autoSync = integration.auto_sync) => {
     setBusy(true);
     try { await saveSettings(integration, autoSync); await load(); onNotify("Google Sheets mapping saved."); }
-    catch (error) { onNotify(error instanceof Error ? error.message : "Google Sheets settings could not be saved."); } finally { setBusy(false); }
+    catch (error) { onNotify(googleSheetsErrorMessage(error, "Google Sheets settings could not be saved.")); } finally { setBusy(false); }
   };
   const preview = async (integration: GoogleSheetIntegration, input = spreadsheetInput, autoImport = false) => {
     setBusy(true);
@@ -170,7 +170,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
       }
     } catch (error) {
       if (autoImport) await load(true);
-      onNotify(error instanceof Error ? error.message : "Sheet columns could not be loaded.");
+      onNotify(googleSheetsErrorMessage(error, "Sheet columns could not be loaded."));
     } finally { setBusy(false); }
   };
   const saveAndImport = async (integration: GoogleSheetIntegration, input = spreadsheetInput) => {
@@ -191,7 +191,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
       onNotify(formatSyncResult(result));
     } catch (error) {
       await load();
-      onNotify(error instanceof Error ? error.message : "Google Sheets import failed.");
+      onNotify(googleSheetsErrorMessage(error, "Google Sheets import failed."));
     } finally { setBusy(false); }
   };
   const sync = async (integration: GoogleSheetIntegration) => {
@@ -228,7 +228,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
         <label>Phone column<input value={mapping.phone || ""} onChange={(event) => setMapping({ ...mapping, phone: event.target.value })} /></label>
         <label>Email column<input value={mapping.email || ""} onChange={(event) => setMapping({ ...mapping, email: event.target.value })} /></label>
         <button className="button primary" disabled={busy || integration.spreadsheet_id === "pending-selection" || !availableColumns.length || !selectedColumns.length} onClick={() => void sync(integration)}><RefreshCw size={16} /> Sync Now</button>
-        <button className="button secondary" disabled={busy} onClick={async () => { try { await disconnectGoogleSheet(integration.id); await load(); onNotify("Google account disconnected."); } catch (error) { onNotify(error instanceof Error ? error.message : "Disconnect failed."); } }}><Unplug size={16} /> Disconnect</button>
+        <button className="button secondary" disabled={busy} onClick={async () => { try { await disconnectGoogleSheet(integration.id); await load(); onNotify("Google account disconnected."); } catch (error) { onNotify(googleSheetsErrorMessage(error, "Disconnect failed.")); } }}><Unplug size={16} /> Disconnect</button>
       </div>
       <p className="muted">Rows: {integration.total_rows_processed} · New: {integration.new_leads_imported} · Updated: {integration.existing_leads_updated} · Failed: {integration.failed_rows}</p>
     </div>)}

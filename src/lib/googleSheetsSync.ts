@@ -18,6 +18,21 @@ export type GoogleSpreadsheetReference = {
   worksheetId: string | null;
 };
 
+export function googleSheetsErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "object" && error !== null) {
+    const record = error as Record<string, unknown>;
+    const details = ["message", "details", "hint"]
+      .map((key) => {
+        const value = record[key];
+        return typeof value === "string" ? value.trim() : "";
+      })
+      .filter(Boolean);
+    if (details.length) return [...new Set(details)].join(" — ");
+  }
+  return fallback;
+}
+
 export function parseGoogleSpreadsheetReference(input: string): GoogleSpreadsheetReference {
   const value = input.trim();
   if (!value) throw new Error("Paste a Google Sheets link or spreadsheet ID.");
