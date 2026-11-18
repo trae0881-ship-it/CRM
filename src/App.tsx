@@ -43,7 +43,7 @@ const DocumentationCenter = lazy(() => import("./components/DocumentationCenter"
 import { canAccessDocumentation, getDocumentationCenter, getDocumentationRedirectPath } from "./lib/documentationAccess";
 const DatabaseMonitoringView = lazy(() => import("./components/DatabaseMonitoringView").then((module) => ({ default: module.DatabaseMonitoringView })));
 import { applyRouteMetadata, getAppUrl, redirectToCanonicalDomain } from "./lib/appUrls";
-import { canAccessDashboardRoute, getRoleDashboardPath, isOrganizationPath, isSaasAdminPath, normalizePathname, resolveDashboardRoute, type DashboardView } from "./lib/roleRoutes";
+import { canAccessDashboardRoute, getRoleDashboardPath, isMalformedOrganizationPath, isOrganizationPath, isSaasAdminPath, normalizePathname, resolveDashboardRoute, type DashboardView } from "./lib/roleRoutes";
 const DomainLinksView = lazy(() => import("./components/DomainManagementView").then((module) => ({ default: module.DomainLinksView })));
 const DomainManagementView = lazy(() => import("./components/DomainManagementView").then((module) => ({ default: module.DomainManagementView })));
 const MarketingPublicPage = lazy(() => import("./components/PublicPages").then((module) => ({ default: module.PublicPage })));
@@ -133,6 +133,10 @@ function App() {
 
   const navigateToPath = useCallback((path: string, replace = false) => {
     const normalizedPath = normalizePathname(path);
+    if (isMalformedOrganizationPath(normalizedPath)) {
+      setToast("This organization link is incomplete. Your workspace was not changed.");
+      return;
+    }
     if (replace) window.history.replaceState({}, "", normalizedPath);
     else if (window.location.pathname !== normalizedPath) window.history.pushState({}, "", normalizedPath);
     setRoutePath(normalizedPath);
@@ -452,6 +456,12 @@ function App() {
     setToast(message);
     window.setTimeout(() => setToast(""), 2600);
   }, []);
+
+  useEffect(() => {
+    if (!isMalformedOrganizationPath(routePath) || !membershipLoaded || !membership) return;
+    notify("This organization link was incomplete. Opening your authorized dashboard.");
+    navigateToPath(getRoleDashboardPath(membership.role), true);
+  }, [membership, membershipLoaded, navigateToPath, notify, routePath]);
 
   const addLead = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

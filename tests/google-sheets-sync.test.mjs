@@ -19,8 +19,15 @@ test("Google Sheets backend is server-only and pipeline movement is role-authori
   const oauth = await readFile(new URL("../supabase/functions/google-sheets-oauth/index.ts", import.meta.url), "utf8");
   const sync = await readFile(new URL("../supabase/functions/google-sheets-sync/index.ts", import.meta.url), "utf8");
   const migration = await readFile(new URL("../supabase/migrations/202611020019_google_sheets_and_pipeline_access.sql", import.meta.url), "utf8");
+  const workspace = await readFile(new URL("../src/services/workspace.ts", import.meta.url), "utf8");
+  const service = await readFile(new URL("../src/services/googleSheets.ts", import.meta.url), "utf8");
   assert.match(oauth, /GOOGLE_CLIENT_SECRET/);
   assert.match(oauth, /GOOGLE_SHEETS_TOKEN_ENCRYPTION_KEY/);
+  assert.match(oauth, /getRedirectUri\(url\)/);
+  assert.match(oauth, /organizationIdPattern\.test\(body\.organizationId\)/);
+  assert.doesNotMatch(oauth, /env\("GOOGLE_SHEETS_REDIRECT_URI"\)/);
+  assert.match(workspace, /isOrganizationId\(membership\.organization_id\)/);
+  assert.match(service, /isOrganizationId\(organizationId\)/);
   assert.match(sync, /SUPABASE_SERVICE_ROLE_KEY/);
   assert.match(sync, /source_status: "missing"/);
   assert.match(migration, /google_sheet_integrations/);
@@ -58,6 +65,8 @@ test("Google OAuth opens synchronously, validates its callback source, and refre
   const view = await readFile(new URL("../src/components/GoogleSheetsView.tsx", import.meta.url), "utf8");
   const service = await readFile(new URL("../src/services/googleSheets.ts", import.meta.url), "utf8");
   assert.ok(view.indexOf('window.open("about:blank"') < view.indexOf("await startGoogleOAuth("));
+  assert.match(view, /validOrganizationId = isOrganizationId\(membership\.organization_id\)/);
+  assert.match(view, /!validOrganizationId[\s\S]*?return;/);
   assert.match(view, /event\.origin !== supabaseOrigin \|\| event\.source !== popupRef\.current/);
   assert.match(view, /"adometa-google-sheets-connected", "adometa-google-sheets-error"/);
   assert.match(service, /error\.context instanceof Response/);
@@ -67,7 +76,8 @@ test("Google OAuth opens synchronously, validates its callback source, and refre
 test("Google Sheets setup documents free-tier prerequisites and the public OAuth callback deployment", async () => {
   const docs = await readFile(new URL("../GOOGLE_SHEETS_INTEGRATION.md", import.meta.url), "utf8");
   assert.match(docs, /Supabase's free tier can host/);
-  assert.match(docs, /GOOGLE_SHEETS_REDIRECT_URI/);
+  assert.match(docs, /callback URI is derived from the incoming/);
+  assert.match(docs, /Register the exact callback URL/);
   assert.match(docs, /google-sheets-oauth --no-verify-jwt/);
   assert.match(docs, /bearer token and organization-admin membership/);
 });

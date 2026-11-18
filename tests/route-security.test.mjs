@@ -25,6 +25,9 @@ test("route resolver maps roles, canonical paths, and forbidden areas", () => {
   assert.equal(routeHelpers.canAccessDashboardRoute("/org/users", "organization_admin", true), true);
   assert.equal(routeHelpers.resolveDashboardRoute("/org/dashboard/")?.path, "/org/dashboard");
   assert.equal(routeHelpers.resolveDashboardRoute("/org/unknown"), null);
+  assert.equal(routeHelpers.isMalformedOrganizationPath("/org/undefined"), true);
+  assert.equal(routeHelpers.isMalformedOrganizationPath("/org/null/integrations"), true);
+  assert.equal(routeHelpers.isMalformedOrganizationPath("/org/integrations"), false);
 });
 
 test("canonical SaaS and organization routes have explicit role guards", () => {
@@ -55,5 +58,7 @@ test("multiple memberships require selection and selection is checked against ac
 test("protected route navigation follows browser history and unknown routes render Not Found", () => {
   assert.match(app, /window\.addEventListener\("popstate", handlePopState\)/);
   assert.match(app, /window\.history\.pushState/);
+  assert.match(app, /isMalformedOrganizationPath\(normalizedPath\)/);
+  assert.match(app, /isMalformedOrganizationPath\(routePath\)[\s\S]*?getRoleDashboardPath\(membership\.role\)/);
   assert.match(app, /return <NotFoundView \/>/);
 });

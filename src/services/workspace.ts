@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { isOrganizationId } from "../lib/organizationId";
 import type { UserRole } from "../types/database";
 
 export type Membership = { organization_id: string; user_id: string; role: UserRole; is_active: boolean };
@@ -65,10 +66,15 @@ export async function listCurrentMemberships(): Promise<MembershipOption[]> {
     .eq("is_active", true);
   if (error) throw error;
   return ((data ?? []) as Array<Membership & { organizations: { name: string } | { name: string }[] | null }>)
-    .map(({ organizations, ...membership }) => ({
-      ...membership,
-      organization_name: Array.isArray(organizations) ? organizations[0]?.name || "Organization" : organizations?.name || "Organization",
-    }));
+    .map(({ organizations, ...membership }) => {
+      if (!isOrganizationId(membership.organization_id)) {
+        throw new Error("An active organization membership has an invalid organization ID.");
+      }
+      return {
+        ...membership,
+        organization_name: Array.isArray(organizations) ? organizations[0]?.name || "Organization" : organizations?.name || "Organization",
+      };
+    });
 }
 
 export async function getOrganizationProfile(organizationId: string): Promise<OrganizationProfile> {

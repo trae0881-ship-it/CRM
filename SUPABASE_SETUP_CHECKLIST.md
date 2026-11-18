@@ -18,7 +18,7 @@ Status: **WAITING FOR DEPLOYMENT**
 2. Take and verify a backup or snapshot.
 3. Inspect the migration history before running anything.
 4. Apply migrations `202611020001` through `202611020024` in order only after confirming the project identity and comparing remote migration history; apply only pending versions.
-5. Configure Google OAuth server secrets: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_SHEETS_REDIRECT_URI` and a base64-encoded 32-byte `GOOGLE_SHEETS_TOKEN_ENCRYPTION_KEY`. Deploy `google-sheets-oauth` and `google-sheets-sync` only after reviewing their scopes and redirect URI.
+5. Configure Google OAuth server secrets: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and a base64-encoded 32-byte `GOOGLE_SHEETS_TOKEN_ENCRYPTION_KEY`. Register the deployed `google-sheets-oauth` function URL as the Google Cloud OAuth redirect URI. Deploy both functions only after reviewing their scopes and callback URL.
 6. Specifically test migrations `202611020022` and `202611020023` against staging data and review the additive Company Owner audit-read policy in `202611020024`.
 7. Capture SQL output and migration history.
 8. Verify tables, indexes, functions, triggers and RLS policies.

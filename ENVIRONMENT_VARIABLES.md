@@ -26,7 +26,6 @@ All values below belong in Supabase Edge Function secrets (or an approved server
 | `SUPER_ADMIN_BOOTSTRAP_SECRET` | One-time secret required by `bootstrap-super-admin`. | Required only during the one-time bootstrap. Remove/rotate after use. | Generate a high-entropy secret in a trusted password/secret manager; never commit it. | Staging/prod bootstrap only |
 | `GOOGLE_CLIENT_ID` | OAuth client identifier for Google Sheets connection. | Required to enable Google Sheets OAuth and sync. | Google Cloud Console → APIs & Services → Credentials (OAuth client). | Local function development, staging, production when Google Sheets is enabled |
 | `GOOGLE_CLIENT_SECRET` | OAuth client secret. | Required to enable Google Sheets OAuth and sync. | Google Cloud Console → APIs & Services → Credentials. | Local function development, staging, production when Google Sheets is enabled |
-| `GOOGLE_SHEETS_REDIRECT_URI` | Exact OAuth callback URI registered for the deployed `google-sheets-oauth` function. | Required to enable Google Sheets OAuth. | Use the deployed Supabase function callback URL and register the same URI in Google Cloud Console. | Local function development, staging, production when Google Sheets is enabled |
 | `GOOGLE_SHEETS_TOKEN_ENCRYPTION_KEY` | Base64-encoded 32-byte AES key for stored Google OAuth tokens. | Required to enable Google Sheets OAuth and sync. | Generate 32 random bytes with a cryptographically secure generator and base64 encode; store only as a server secret. | Local function development, staging, production when Google Sheets is enabled |
 | `GOOGLE_SHEETS_SYNC_CRON_SECRET` | Secret header credential for scheduled sync requests. Authenticated manual sync does not require it. | Optional; required for a scheduler that invokes sync without a user session. | Generate a high-entropy secret in a trusted secret manager and configure it on the scheduler. | Staging/production if scheduled sync is enabled |
 | `META_APP_SECRET` | Verifies signed Meta webhook payloads. | Required only if the webhook is deployed and activated. | Meta for Developers → app settings. | Staging/production if Meta webhooks are enabled |
@@ -34,6 +33,8 @@ All values below belong in Supabase Edge Function secrets (or an approved server
 | `META_GRAPH_API_VERSION` | Graph API version used for lead lookup. | Optional; code defaults to `v21.0`. | Select a supported version in Meta for Developers after compatibility review. | Staging/production if Meta webhooks are enabled |
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are Supabase-managed runtime values in hosted Edge Functions where available. Configure them as secrets for local function development. Never place service-role credentials in `.env` values prefixed with `VITE_`.
+
+The Google OAuth callback URI is derived from the deployed `google-sheets-oauth` request URL and registered in Google Cloud; it is not an environment variable or an organization route.
 
 ## MySQL replica and server-side API
 

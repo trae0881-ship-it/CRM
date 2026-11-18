@@ -10,16 +10,17 @@ Configure these only in Supabase Edge Function secrets:
 
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_SHEETS_REDIRECT_URI`
 - `GOOGLE_SHEETS_TOKEN_ENCRYPTION_KEY` (base64-encoded 32-byte key)
 - `GOOGLE_SHEETS_SYNC_CRON_SECRET` (random scheduler-only secret)
+
+The OAuth callback URI is derived from the incoming `google-sheets-oauth` Edge Function request. Do not configure an app route or a `GOOGLE_SHEETS_REDIRECT_URI` secret. Register the exact deployed function URL as an authorized redirect URI in Google Cloud.
 
 ## First-time setup
 
 1. Apply the existing database migrations through `202611020019_google_sheets_and_pipeline_access.sql` in the intended Supabase project. Do not recreate the integration tables.
 2. In Google Cloud Console, enable the Google Sheets API, configure the OAuth consent screen, and create a Web application OAuth client. Add the Google account used for testing as a test user while the consent screen is in testing.
-3. Set `GOOGLE_SHEETS_REDIRECT_URI` to the exact callback URL `https://<project-ref>.supabase.co/functions/v1/google-sheets-oauth`, and register that exact URL as an authorized redirect URI on the Google OAuth client.
-4. Configure the four required Google values above as Supabase Edge Function secrets. Keep the client secret and encryption key server-side; never add them to frontend environment variables. `GOOGLE_SHEETS_SYNC_CRON_SECRET` is optional unless a trusted scheduler is configured.
+3. Register the exact callback URL `https://<project-ref>.supabase.co/functions/v1/google-sheets-oauth` as an authorized redirect URI on the Google OAuth Web client. The function derives this URI from its own request URL; it does not redirect to `crm.adometa.in` or an organization route.
+4. Configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_SHEETS_TOKEN_ENCRYPTION_KEY` as Supabase Edge Function secrets. Keep the client secret and encryption key server-side; never add them to frontend environment variables. `GOOGLE_SHEETS_SYNC_CRON_SECRET` is optional unless a trusted scheduler is configured.
 5. Deploy `google-sheets-oauth` with JWT gateway verification disabled so Google's callback can reach it: `supabase functions deploy google-sheets-oauth --no-verify-jwt`. Its POST actions still validate the user's bearer token and organization-admin membership in the function; the callback validates a one-time, expiring OAuth state.
 6. Deploy `google-sheets-sync` normally: `supabase functions deploy google-sheets-sync`. Apply migrations before testing. The browser sends the user's session token for manual sync.
 
@@ -34,7 +35,7 @@ The Google provider shown under Supabase Auth → Sign In / Providers is for Sup
    - `supabase functions deploy google-sheets-oauth --no-verify-jwt`
    - `supabase functions deploy google-sheets-sync`
 3. Check `google-sheets-oauth` logs while clicking Connect. A browser/network failure usually occurs before Google OAuth starts; missing Google credentials instead return a function error such as a missing secret.
-4. Confirm the four required Google secrets are configured in that project's Edge Function secrets, the database migration exists, and the callback URI matches exactly in both the secret and Google Cloud OAuth client.
+4. Confirm the three required Google secrets are configured in that project's Edge Function secrets, the database migration exists, and the callback URL is registered exactly in the Google Cloud OAuth client.
 
 Do not share service-role keys, Google client secrets, OAuth codes, or access/refresh tokens when reporting an error.
 

@@ -36,10 +36,11 @@ Deploy only after migration history has been checked and the function source has
 - `SUPER_ADMIN_BOOTSTRAP_SECRET`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_SHEETS_REDIRECT_URI`
 - `GOOGLE_SHEETS_TOKEN_ENCRYPTION_KEY`
 - `GOOGLE_SHEETS_SYNC_CRON_SECRET`
 Enter approved values through Supabase Edge Function Secrets or another approved secret manager. Do not print, commit or place secrets in browser storage or logs.
+
+Register the deployed `google-sheets-oauth` function URL as the Google Cloud OAuth redirect URI. The callback is derived from the function request URL, not configured as a Supabase secret.
 
 ## Function deployment inventory
 

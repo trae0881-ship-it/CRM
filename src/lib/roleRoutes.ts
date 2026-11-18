@@ -75,6 +75,10 @@ export function isOrganizationPath(path: string) {
   return normalizedPath === "/org" || normalizedPath.startsWith("/org/");
 }
 
+export function isMalformedOrganizationPath(path: string) {
+  return /^\/org\/(?:undefined|null)(?:\/|$)/i.test(normalizePathname(path));
+}
+
 export function getRoleDashboardPath(role: UserRole) {
   return role === "super_admin" ? "/saas/admin/dashboard" : "/org/dashboard";
 }

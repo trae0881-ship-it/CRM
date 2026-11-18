@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { isOrganizationId } from "../lib/organizationId";
 import type { GoogleLeadMapping } from "../lib/googleSheetsSync";
 
 const client = () => {
@@ -47,6 +48,9 @@ export type GoogleSheetIntegration = {
 };
 
 export async function startGoogleOAuth(organizationId: string) {
+  if (!isOrganizationId(organizationId)) {
+    throw new Error("A valid active organization is required before connecting Google Sheets.");
+  }
   return invokeGoogleFunction<{ authorizationUrl: string }>("google-sheets-oauth", { action: "start", organizationId });
 }
 
