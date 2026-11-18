@@ -865,7 +865,11 @@ function LeadDetails({ lead, events, salespeople, onClose, onNotify, onRefresh }
     ["Priority", lead.priority], ["Next follow-up", lead.next_follow_up_at],
   ];
   const visibleCoreDetails = coreDetails.filter(([, value]) => value !== null && value !== undefined && value !== "");
-  const importedDetails = Object.entries(lead.custom_fields ?? {}).filter(([, value]) => value !== null && value !== undefined && value !== "");
+  const sheetColumns = Array.isArray(lead.custom_fields?._google_sheets_columns) ? lead.custom_fields._google_sheets_columns : [];
+  const visibleSheetColumns = Array.isArray(lead.custom_fields?._google_sheets_visible_columns) ? lead.custom_fields._google_sheets_visible_columns : sheetColumns;
+  const importedDetails = Object.entries(lead.custom_fields ?? {}).filter(([key, value]) => !key.startsWith("_google_sheets_")
+    && (!sheetColumns.includes(key) || visibleSheetColumns.includes(key))
+    && value !== null && value !== undefined && value !== "");
   const displayFieldValue = (value: unknown) => typeof value === "string" ? value : JSON.stringify(value);
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="modal lead-details">

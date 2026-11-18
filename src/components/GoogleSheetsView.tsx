@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Link2, RefreshCw, Unplug } from "lucide-react";
 import type { Membership } from "../services/workspace";
 import { isOrganizationId } from "../lib/organizationId";
-import { disconnectGoogleSheet, listGoogleSheetIntegrations, listGoogleSyncRuns, startGoogleOAuth, syncGoogleSheet, updateGoogleSheetSettings, type GoogleSheetIntegration } from "../services/googleSheets";
+import { disconnectGoogleSheet, listGoogleSheetIntegrations, listGoogleSyncRuns, previewGoogleSheet, startGoogleOAuth, syncGoogleSheet, updateGoogleSheetSettings, type GoogleSheetIntegration } from "../services/googleSheets";
 import { parseGoogleSpreadsheetReference, type GoogleLeadMapping } from "../lib/googleSheetsSync";
 
 const defaultMapping: GoogleLeadMapping = { full_name: "Full Name", phone: "Phone", email: "Email", city: "City", state: "State", source: "Source" };
@@ -13,6 +13,11 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
   const [spreadsheetInput, setSpreadsheetInput] = useState("");
   const [worksheetName, setWorksheetName] = useState("Sheet1");
   const [mapping, setMapping] = useState<GoogleLeadMapping>(defaultMapping);
+  const [availableColumns, setAvailableColumns] = useState<string[]>([]);
+  const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
+  const [previewedSpreadsheetId, setPreviewedSpreadsheetId] = useState("");
+  const [previewedWorksheetId, setPreviewedWorksheetId] = useState("");
+  const [previewedWorksheetName, setPreviewedWorksheetName] = useState("");
   const [busy, setBusy] = useState(false);
   const popupRef = useRef<Window | null>(null);
   const validOrganizationId = isOrganizationId(membership.organization_id);
@@ -27,7 +32,16 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
       const firstIntegration = loadedIntegrations[0];
       setSpreadsheetInput(firstIntegration?.spreadsheet_id === "pending-selection" ? "" : firstIntegration?.spreadsheet_id ?? "");
       setWorksheetName(firstIntegration?.worksheet_name ?? "Sheet1");
-      setMapping(firstIntegration?.column_mapping ?? defaultMapping);
+      const loadedMapping = firstIntegration?.column_mapping ?? defaultMapping;
+      setMapping(loadedMapping);
+      setSelectedColumns(Array.isArray(loadedMapping.visible_columns) ? loadedMapping.visible_columns : []);
+      if (firstIntegration?.spreadsheet_id !== previewedSpreadsheetId
+        || (previewedWorksheetId && firstIntegration?.worksheet_id !== previewedWorksheetId)) {
+        setAvailableColumns([]);
+        setPreviewedSpreadsheetId("");
+        setPreviewedWorksheetId("");
+        setPreviewedWorksheetName("");
+      }
       setRuns(await listGoogleSyncRuns(membership.organization_id));
     }
     catch (error) { onNotify(error instanceof Error ? error.message : "Google Sheets data could not be loaded."); }
@@ -77,20 +91,57 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
       onNotify(error instanceof Error ? error.message : "Google authorization could not start.");
     } finally { setBusy(false); }
   };
-  const saveSettings = async (integration: GoogleSheetIntegration, autoSync = integration.auto_sync, input = spreadsheetInput) => {
+  const saveSettings = async (integration: GoogleSheetIntegration, autoSync = integration.auto_sync, input = spreadsheetInput, mappingToSave = mapping) => {
     const reference = parseGoogleSpreadsheetReference(input);
-    await updateGoogleSheetSettings(integration.id, { spreadsheet_id: reference.spreadsheetId, worksheet_id: reference.worksheetId, worksheet_name: worksheetName.trim() || "Sheet1", column_mapping: mapping, auto_sync: autoSync });
+    await updateGoogleSheetSettings(integration.id, { spreadsheet_id: reference.spreadsheetId, worksheet_id: reference.worksheetId, worksheet_name: worksheetName.trim() || "Sheet1", column_mapping: mappingToSave, auto_sync: autoSync });
     setSpreadsheetInput(reference.spreadsheetId);
+    return reference;
+  };
+  const updateSelectedColumns = (columns: string[]) => {
+    setSelectedColumns(columns);
+    setMapping((current) => ({ ...current, visible_columns: columns }));
   };
   const save = async (integration: GoogleSheetIntegration, autoSync = integration.auto_sync) => {
     setBusy(true);
     try { await saveSettings(integration, autoSync); await load(); onNotify("Google Sheets mapping saved."); }
     catch (error) { onNotify(error instanceof Error ? error.message : "Google Sheets settings could not be saved."); } finally { setBusy(false); }
   };
+  const preview = async (integration: GoogleSheetIntegration, input = spreadsheetInput) => {
+    setBusy(true);
+    try {
+      const currentReference = parseGoogleSpreadsheetReference(input);
+      const isDifferentSheet = currentReference.spreadsheetId !== integration.spreadsheet_id
+        || Boolean(currentReference.worksheetId && currentReference.worksheetId !== integration.worksheet_id);
+      await saveSettings(integration, integration.auto_sync, input);
+      const result = await previewGoogleSheet(integration.id);
+      const configuredColumns = isDifferentSheet ? undefined : mapping.visible_columns;
+      const nextSelectedColumns = configuredColumns === undefined
+        ? result.headers
+        : result.headers.filter((column) => configuredColumns.includes(column));
+      setAvailableColumns(result.headers);
+      setPreviewedSpreadsheetId(currentReference.spreadsheetId);
+      setPreviewedWorksheetId(result.worksheetId);
+      setPreviewedWorksheetName(result.worksheetName);
+      setWorksheetName(result.worksheetName);
+      updateSelectedColumns(nextSelectedColumns);
+      onNotify(`Found ${result.headers.length} columns. Choose which fields to show on leads, then import.`);
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Sheet columns could not be loaded.");
+    } finally { setBusy(false); }
+  };
   const saveAndImport = async (integration: GoogleSheetIntegration, input = spreadsheetInput) => {
     setBusy(true);
     try {
-      await saveSettings(integration, integration.auto_sync, input);
+      if (!availableColumns.length || !previewedSpreadsheetId) throw new Error("Load the sheet columns before importing.");
+      const currentReference = parseGoogleSpreadsheetReference(input);
+      if (currentReference.spreadsheetId !== previewedSpreadsheetId
+        || (currentReference.worksheetId && currentReference.worksheetId !== previewedWorksheetId)
+        || (!currentReference.worksheetId && worksheetName.trim() && worksheetName.trim() !== previewedWorksheetName)) {
+        throw new Error("The spreadsheet or worksheet changed. Load its columns again before importing.");
+      }
+      if (!selectedColumns.length) throw new Error("Select at least one column to show on leads.");
+      const mappingToSave = { ...mapping, visible_columns: selectedColumns };
+      await saveSettings(integration, integration.auto_sync, input, mappingToSave);
       const result = await syncGoogleSheet(integration.id, true);
       await load();
       onNotify(`${result.newLeads} new leads imported; ${result.updatedLeads} updated; ${result.failedRows} failed.`);
@@ -100,35 +151,39 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
     } finally { setBusy(false); }
   };
   const sync = async (integration: GoogleSheetIntegration) => {
-    setBusy(true);
-    try { const result = await syncGoogleSheet(integration.id, true); await load(); onNotify(`${result.newLeads} new leads imported; ${result.updatedLeads} updated.`); }
-    catch (error) { onNotify(error instanceof Error ? error.message : "Google Sheets sync failed."); } finally { setBusy(false); }
+    await saveAndImport(integration);
   };
   return <section className="card">
     <div className="card-header">
       <div>
         <p className="eyebrow">GOOGLE SHEETS</p>
         <h2>Live lead sync</h2>
-        <p>Connect an account, paste a Google Sheets link, and import leads. OAuth tokens stay server-side.</p>
+        <p>Connect Google, paste a sheet link, choose columns, then sync them into leads. OAuth tokens stay server-side.</p>
       </div>
       <button className="button primary" disabled={busy || !validOrganizationId || !["company_owner", "organization_admin"].includes(membership.role)} onClick={() => void connect()}><Link2 size={16} /> Connect Google Account</button>
     </div>
     {!validOrganizationId && <p className="profile-error" role="alert">An active organization could not be verified. Reload or sign in again before connecting.</p>}
     {integrations.map((integration) => <div className="operations-form" key={integration.id}>
       <div className="card-header"><strong>{integration.provider_account_email || "Google account"}</strong><span className="pending-pill">{integration.status}</span></div>
-      {integration.spreadsheet_id === "pending-selection" && <p className="muted">Paste a Google Sheets link or spreadsheet ID to choose the sheet.</p>}
+      {integration.spreadsheet_id === "pending-selection" && <p className="muted">After Google authorization, paste a Google Sheets link to load its available columns.</p>}
       <div className="inline-form">
-        <label>Google Sheets link or ID<input value={spreadsheetInput} onChange={(event) => setSpreadsheetInput(event.target.value)} onPaste={(event) => { const pasted = event.clipboardData.getData("text").trim(); if (pasted) { event.preventDefault(); setSpreadsheetInput(pasted); void saveAndImport(integration, pasted); } }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void saveAndImport(integration); } }} placeholder="https://docs.google.com/spreadsheets/d/..." /></label>
+        <label>Google Sheets link or ID<input value={spreadsheetInput} onChange={(event) => setSpreadsheetInput(event.target.value)} onPaste={(event) => { const pasted = event.clipboardData.getData("text").trim(); if (pasted) { event.preventDefault(); setSpreadsheetInput(pasted); void preview(integration, pasted); } }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void preview(integration); } }} placeholder="https://docs.google.com/spreadsheets/d/..." /></label>
         <label>Worksheet / tab<input value={worksheetName} onChange={(event) => setWorksheetName(event.target.value)} placeholder="Sheet1" /></label>
         <label>Automatic sync<select value={integration.auto_sync ? "on" : "off"} onChange={(event) => void save(integration, event.target.value === "on")}><option value="off">Off</option><option value="on">On</option></select></label>
         <button className="button secondary" disabled={busy} onClick={() => void save(integration)}>Save mapping</button>
-        <button className="button primary" disabled={busy} onClick={() => void saveAndImport(integration)}><RefreshCw size={16} /> {busy ? "Importing..." : "Save & Import Leads"}</button>
+        <button className="button secondary" disabled={busy} onClick={() => void preview(integration)}><RefreshCw size={16} /> {busy ? "Loading..." : "Load sheet columns"}</button>
+        <button className="button primary" disabled={busy || !availableColumns.length || !selectedColumns.length} onClick={() => void saveAndImport(integration)}><RefreshCw size={16} /> {busy ? "Importing..." : "Save & Import Leads"}</button>
       </div>
+      {availableColumns.length > 0 && <fieldset className="sheet-column-picker">
+        <legend>Choose fields to show on leads ({selectedColumns.length} of {availableColumns.length})</legend>
+        <div className="sheet-column-options">{availableColumns.map((column) => <label key={column}><input type="checkbox" checked={selectedColumns.includes(column)} onChange={(event) => updateSelectedColumns(event.target.checked ? [...selectedColumns, column] : selectedColumns.filter((selected) => selected !== column))} /><span>{column}</span></label>)}</div>
+        <p className="muted">Columns come directly from the first row of the selected worksheet. Chosen fields will appear in each imported lead’s details.</p>
+      </fieldset>}
       <div className="inline-form">
         <label>Full Name column<input value={mapping.full_name} onChange={(event) => setMapping({ ...mapping, full_name: event.target.value })} /></label>
         <label>Phone column<input value={mapping.phone || ""} onChange={(event) => setMapping({ ...mapping, phone: event.target.value })} /></label>
         <label>Email column<input value={mapping.email || ""} onChange={(event) => setMapping({ ...mapping, email: event.target.value })} /></label>
-        <button className="button primary" disabled={busy || integration.spreadsheet_id === "pending-selection"} onClick={() => void sync(integration)}><RefreshCw size={16} /> Sync Now</button>
+        <button className="button primary" disabled={busy || integration.spreadsheet_id === "pending-selection" || !availableColumns.length || !selectedColumns.length} onClick={() => void sync(integration)}><RefreshCw size={16} /> Sync Now</button>
         <button className="button secondary" disabled={busy} onClick={async () => { try { await disconnectGoogleSheet(integration.id); await load(); onNotify("Google account disconnected."); } catch (error) { onNotify(error instanceof Error ? error.message : "Disconnect failed."); } }}><Unplug size={16} /> Disconnect</button>
       </div>
       <p className="muted">Rows: {integration.total_rows_processed} · New: {integration.new_leads_imported} · Updated: {integration.existing_leads_updated} · Failed: {integration.failed_rows}</p>

@@ -65,21 +65,31 @@ test("Google Sheets Edge Functions handle browser preflight and notify the OAuth
   assert.match(sync, /request\.method === "OPTIONS"/);
 });
 
-test("Google Sheets import selects the linked tab and preserves every sheet column", async () => {
+test("Google Sheets preview exposes worksheet columns for organization-selected lead details", async () => {
   const view = await readFile(new URL("../src/components/GoogleSheetsView.tsx", import.meta.url), "utf8");
+  const service = await readFile(new URL("../src/services/googleSheets.ts", import.meta.url), "utf8");
   const sync = await readFile(new URL("../supabase/functions/google-sheets-sync/index.ts", import.meta.url), "utf8");
   const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   assert.match(view, /Google Sheets link or ID/);
   assert.match(view, /parseGoogleSpreadsheetReference\(input\)/);
-  assert.match(view, /onPaste=\{\(event\).*saveAndImport\(integration, pasted\)/);
+  assert.match(view, /onPaste=\{\(event\).*preview\(integration, pasted\)/);
+  assert.match(view, /Choose fields to show on leads/);
   assert.match(view, /Save & Import Leads/);
-  assert.match(view, /await saveSettings\(integration, integration\.auto_sync, input\);\s*const result = await syncGoogleSheet/);
+  assert.match(view, /await saveSettings\(integration, integration\.auto_sync, input\);\s*const result = await previewGoogleSheet/);
+  assert.match(service, /action: "preview"/);
+  assert.match(sync, /if \(action === "preview" && !user\)/);
+  assert.match(sync, /Google Sheets sync permission required/);
   assert.match(sync, /String\(sheet\.properties\?\.sheetId\) === String\(integration\.worksheet_id\)/);
   assert.match(sync, /requestedWorksheetName === "Sheet1" \? metadata\.sheets\?\.\[0\]/);
   assert.match(sync, /const quotedWorksheetName = worksheetName\.replace\(\/'\/g, "''"\)/);
+  assert.match(sync, /action === "preview" \? `'\$\{quotedWorksheetName\}'!A1:ZZ1`/);
+  assert.match(sync, /headers: \[\.\.\.new Set\(headers\)\]/);
+  assert.match(sync, /_google_sheets_visible_columns: visibleColumns/);
+  assert.match(sync, /"Phone Number"/);
   assert.match(sync, /Object\.fromEntries\(headers\.map/);
   assert.match(app, /Imported sheet details/);
-  assert.match(sync, /const range = `'\$\{quotedWorksheetName\}'!A1:ZZ/);
+  assert.match(app, /visibleSheetColumns\.includes\(key\)/);
+  assert.match(sync, /const range = action === "preview" \? `'\$\{quotedWorksheetName\}'!A1:ZZ1` : `'\$\{quotedWorksheetName\}'!A1:ZZ/);
 });
 
 test("organization Integrations page exposes existing Google Sheets and WhatsApp workflows", async () => {
@@ -117,8 +127,8 @@ test("Google Sheets setup documents free-tier prerequisites and the public OAuth
   assert.match(docs, /Register the exact callback URL/);
   assert.match(docs, /google-sheets-oauth --no-verify-jwt/);
   assert.match(docs, /bearer token and organization-admin membership/);
-  assert.match(docs, /Pasting a link automatically saves it and starts the import/);
-  assert.match(docs, /preserves every non-empty source column/);
+  assert.match(docs, /reads the first row to show available columns/);
+  assert.match(docs, /Select the columns the organization should see in lead details/);
 });
 
 test("Google Sheets connection reports Edge Function reachability failures with deployment guidance", async () => {

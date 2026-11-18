@@ -47,8 +47,11 @@ Deno.serve(async (request) => {
     const user = await validUser(request);
     const scheduled = hasSchedulerSecret(request);
     if (!user && !scheduled) return json({ error: "Authentication required" }, 401);
-    const body = await request.json().catch(() => null) as { integrationId?: string; confirmInitialImport?: boolean } | null;
+    const body = await request.json().catch(() => null) as { integrationId?: string; confirmInitialImport?: boolean; action?: string } | null;
     if (!body?.integrationId) return json({ error: "Integration is required" }, 400);
+    const action = body.action ?? "sync";
+    if (action !== "sync" && action !== "preview") return json({ error: "Unsupported action" }, 400);
+    if (action === "preview" && !user) return json({ error: "Authentication required" }, 401);
     const db = admin();
     const { data: integration, error: integrationError } = await db.from("google_sheet_integrations").select("*").eq("id", body.integrationId).single();
     if (integrationError || !integration) return json({ error: "Integration not found" }, 404);
@@ -58,7 +61,7 @@ Deno.serve(async (request) => {
     }
     if (!integration.token_ciphertext || integration.status === "disconnected") return json({ error: "Google account is disconnected" }, 409);
     if (integration.spreadsheet_id === "pending-selection") return json({ error: "Select a spreadsheet before syncing" }, 409);
-    if (!integration.column_mapping?.full_name) return json({ error: "Full Name column mapping is required" }, 400);
+    if (action === "sync" && !integration.column_mapping?.full_name) return json({ error: "Full Name column mapping is required" }, 400);
     const token = await decryptToken(integration.token_ciphertext);
     let accessToken = token.access_token;
     if (!integration.token_expires_at || new Date(integration.token_expires_at).getTime() <= Date.now() + 60000) {
@@ -96,7 +99,7 @@ Deno.serve(async (request) => {
       if (error) throw error;
     }
     const quotedWorksheetName = worksheetName.replace(/'/g, "''");
-    const range = `'${quotedWorksheetName}'!A1:ZZ${integration.row_limit + 1}`;
+    const range = action === "preview" ? `'${quotedWorksheetName}'!A1:ZZ1` : `'${quotedWorksheetName}'!A1:ZZ${integration.row_limit + 1}`;
     const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(integration.spreadsheet_id)}/values/${encodeURIComponent(range)}?majorDimension=ROWS`, { headers: { authorization: `Bearer ${accessToken}` } });
     if (!response.ok) {
       const payload = await response.json().catch(() => null) as { error?: { message?: unknown } } | null;
@@ -104,9 +107,16 @@ Deno.serve(async (request) => {
       throw new Error(`Google Sheets read failed (${response.status}): ${detail}`);
     }
     const values = (await response.json()).values as string[][] | undefined;
+    const usedHeaders = new Map<string, number>();
+    const headers = (values?.[0] ?? []).map((value, index) => {
+      const base = String(value ?? "").trim() || `Column ${index + 1}`;
+      const count = (usedHeaders.get(base) ?? 0) + 1;
+      usedHeaders.set(base, count);
+      return count === 1 ? base : `${base} (${count})`;
+    });
+    if (action === "preview") return json({ status: "previewed", worksheetId: String(selectedSheet.properties.sheetId), worksheetName, headers: [...new Set(headers)] });
     if (!values?.length) return json({ status: "completed", totalRows: 0, newLeads: 0, updatedLeads: 0, duplicateRows: 0, failedRows: 0 });
-    const headers = values[0].map((header) => String(header).trim());
-    const mapping = integration.column_mapping as Record<string, string>;
+    const mapping = integration.column_mapping as Record<string, unknown>;
     const nameHeader = findHeader(headers, mapping.full_name, ["Full Name", "Name", "Lead Name", "Customer Name", "Contact Name", "Client Name"]);
     if (!nameHeader) throw new Error(`Could not find a lead name column. Available columns: ${headers.join(", ")}`);
     const phoneHeader = findHeader(headers, mapping.phone, ["Phone", "Phone Number", "Mobile", "Mobile Number", "Contact Number", "WhatsApp Number"]);
@@ -119,6 +129,8 @@ Deno.serve(async (request) => {
     const requirementHeader = findHeader(headers, mapping.requirement, ["Requirement", "Product", "Interested In"]);
     const notesHeader = findHeader(headers, mapping.notes, ["Notes", "Remarks", "Comment"]);
     const sourceIdHeader = findHeader(headers, mapping.source_id, ["Source ID", "Lead ID", "Record ID", "Customer ID"]);
+    const configuredVisibleColumns = Array.isArray(mapping.visible_columns) ? mapping.visible_columns.filter((column): column is string => typeof column === "string") : headers;
+    const visibleColumns = headers.filter((header) => configuredVisibleColumns.includes(header));
     const actorId = user?.id ?? null;
     const run = await db.from("google_sheet_sync_runs").insert({ integration_id: integration.id, organization_id: integration.organization_id, status: "running", created_by: actorId }).select("id").single();
     if (run.error) throw run.error;
@@ -133,7 +145,7 @@ Deno.serve(async (request) => {
         if (phoneHeader && record[phoneHeader] && !phone) throw new Error("Invalid phone number");
         if (emailHeader && record[emailHeader] && !email) throw new Error("Invalid email address");
         const rowKey = `${integration.spreadsheet_id}:${integration.worksheet_id || integration.worksheet_name}:${sourceIdHeader ? String(record[sourceIdHeader] || index) : `${email || ""}:${phone || ""}:${fullName.toLowerCase()}`}`;
-        const rowHash = await sha256(JSON.stringify(record));
+        const rowHash = await sha256(JSON.stringify({ record, visibleColumns }));
         const existingSource = await db.from("google_sheet_source_rows").select("id,lead_id,row_hash").eq("integration_id", integration.id).eq("source_row_key", rowKey).maybeSingle();
         if (existingSource.data?.row_hash === rowHash) { duplicateRows += 1; continue; }
         let lead = existingSource.data?.lead_id ? (await db.from("leads").select("id,custom_fields").eq("id", existingSource.data.lead_id).eq("organization_id", integration.organization_id).single()).data : null;
@@ -147,9 +159,11 @@ Deno.serve(async (request) => {
         const existingCustomFields = lead?.custom_fields && typeof lead.custom_fields === "object" && !Array.isArray(lead.custom_fields) ? lead.custom_fields as Record<string, unknown> : {};
         const importedCustomFields = {
           ...sheetFields,
-          ...(campaignHeader ? { campaign: String(record[campaignHeader] || "").trim() } : {}),
-          ...(requirementHeader ? { requirement: String(record[requirementHeader] || "").trim() } : {}),
-          ...(notesHeader ? { notes: String(record[notesHeader] || "").trim() } : {}),
+          _google_sheets_columns: headers,
+          _google_sheets_visible_columns: visibleColumns,
+          ...(campaignHeader && visibleColumns.includes(campaignHeader) ? { campaign: String(record[campaignHeader] || "").trim() } : {}),
+          ...(requirementHeader && visibleColumns.includes(requirementHeader) ? { requirement: String(record[requirementHeader] || "").trim() } : {}),
+          ...(notesHeader && visibleColumns.includes(notesHeader) ? { notes: String(record[notesHeader] || "").trim() } : {}),
         };
         const patch: Record<string, unknown> = {
           full_name: fullName,

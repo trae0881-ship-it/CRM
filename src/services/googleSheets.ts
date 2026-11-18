@@ -70,6 +70,10 @@ export async function syncGoogleSheet(id: string, confirmInitialImport = false) 
   return invokeGoogleFunction<{ runId: string; status: string; totalRows: number; newLeads: number; updatedLeads: number; duplicateRows: number; failedRows: number }>("google-sheets-sync", { integrationId: id, confirmInitialImport });
 }
 
+export async function previewGoogleSheet(id: string) {
+  return invokeGoogleFunction<{ status: "previewed"; worksheetId: string; worksheetName: string; headers: string[] }>("google-sheets-sync", { integrationId: id, action: "preview" });
+}
+
 export async function listGoogleSyncRuns(organizationId: string) {
   const { data, error } = await client().from("google_sheet_sync_runs").select("*").eq("organization_id", organizationId).order("started_at", { ascending: false }).limit(25);
   if (error) throw error;

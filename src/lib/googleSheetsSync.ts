@@ -10,6 +10,7 @@ export type GoogleLeadMapping = {
   requirement?: string;
   notes?: string;
   source_id?: string;
+  visible_columns?: string[];
 };
 
 export type GoogleSpreadsheetReference = {
