@@ -48,6 +48,20 @@ function normalizeSheetHeaders(values: unknown[] = []) {
     return count === 1 ? base : `${base} (${count})`;
   });
 }
+function errorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) return error.message.trim().slice(0, 1000);
+  if (typeof error === "object" && error !== null) {
+    const record = error as Record<string, unknown>;
+    const details = ["message", "details", "hint"]
+      .map((key) => {
+        const value = record[key];
+        return typeof value === "string" ? value.trim() : "";
+      })
+      .filter(Boolean);
+    if (details.length) return [...new Set(details)].join(" — ").slice(0, 1000);
+  }
+  return fallback;
+}
 function scoreLeadWorksheet(headers: string[]) {
   let score = 0;
   if (findHeader(headers, "Full Name", ["Name", "Lead Name", "Customer Name", "Contact Name"])) score += 100;
@@ -235,8 +249,8 @@ Deno.serve(async (request) => {
     if (finishedIntegration.error) throw finishedIntegration.error;
     return json({ runId: run.data.id, status: failedRows ? "failed" : "completed", totalRows: values.length - 1, newLeads, updatedLeads, duplicateRows, failedRows, errors: errors.slice(0, 10) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Google Sheets sync failed";
-    console.error("Google Sheets sync failed", message);
+    const message = errorMessage(error, "Google Sheets sync failed");
+    console.error("Google Sheets sync failed", { message, error });
     return json({ error: message }, 500);
   }
 });

@@ -104,6 +104,8 @@ test("Google Sheets preview exposes worksheet columns for organization-selected 
   assert.doesNotMatch(sync, /if \(phoneHeader && record\[phoneHeader\] && !phone\)/);
   assert.doesNotMatch(sync, /if \(emailHeader && record\[emailHeader\] && !email\)/);
   assert.match(sync, /errors: errors\.slice\(0, 10\)/);
+  assert.match(sync, /function errorMessage\(error: unknown, fallback: string\)/);
+  assert.match(sync, /const message = errorMessage\(error, "Google Sheets sync failed"\)/);
   assert.match(sync, /Object\.fromEntries\(headers\.map/);
   assert.match(app, /Imported sheet details/);
   assert.match(app, /visibleSheetColumns\.includes\(key\)/);
