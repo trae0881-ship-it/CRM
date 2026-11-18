@@ -21,7 +21,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
   const [busy, setBusy] = useState(false);
   const popupRef = useRef<Window | null>(null);
   const validOrganizationId = isOrganizationId(membership.organization_id);
-  const load = async () => {
+  const load = async (preservePreview = false) => {
     if (!validOrganizationId) {
       onNotify("Your active organization could not be verified. Reload and sign in again before connecting Google Sheets.");
       return;
@@ -35,8 +35,8 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
       const loadedMapping = firstIntegration?.column_mapping ?? defaultMapping;
       setMapping(loadedMapping);
       setSelectedColumns(Array.isArray(loadedMapping.visible_columns) ? loadedMapping.visible_columns : []);
-      if (firstIntegration?.spreadsheet_id !== previewedSpreadsheetId
-        || (previewedWorksheetId && firstIntegration?.worksheet_id !== previewedWorksheetId)) {
+      if (!preservePreview && (firstIntegration?.spreadsheet_id !== previewedSpreadsheetId
+        || (Boolean(previewedWorksheetId) && firstIntegration?.worksheet_id !== previewedWorksheetId))) {
         setAvailableColumns([]);
         setPreviewedSpreadsheetId("");
         setPreviewedWorksheetId("");
@@ -91,9 +91,9 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
       onNotify(error instanceof Error ? error.message : "Google authorization could not start.");
     } finally { setBusy(false); }
   };
-  const saveSettings = async (integration: GoogleSheetIntegration, autoSync = integration.auto_sync, input = spreadsheetInput, mappingToSave = mapping) => {
+  const saveSettings = async (integration: GoogleSheetIntegration, autoSync = integration.auto_sync, input = spreadsheetInput, mappingToSave = mapping, worksheetNameToSave = worksheetName) => {
     const reference = parseGoogleSpreadsheetReference(input);
-    await updateGoogleSheetSettings(integration.id, { spreadsheet_id: reference.spreadsheetId, worksheet_id: reference.worksheetId, worksheet_name: worksheetName.trim() || "Sheet1", column_mapping: mappingToSave, auto_sync: autoSync });
+    await updateGoogleSheetSettings(integration.id, { spreadsheet_id: reference.spreadsheetId, worksheet_id: reference.worksheetId, worksheet_name: worksheetNameToSave.trim() || "Sheet1", column_mapping: mappingToSave, auto_sync: autoSync });
     setSpreadsheetInput(reference.spreadsheetId);
     return reference;
   };
@@ -106,26 +106,47 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
     try { await saveSettings(integration, autoSync); await load(); onNotify("Google Sheets mapping saved."); }
     catch (error) { onNotify(error instanceof Error ? error.message : "Google Sheets settings could not be saved."); } finally { setBusy(false); }
   };
-  const preview = async (integration: GoogleSheetIntegration, input = spreadsheetInput) => {
+  const preview = async (integration: GoogleSheetIntegration, input = spreadsheetInput, autoImport = false) => {
     setBusy(true);
     try {
       const currentReference = parseGoogleSpreadsheetReference(input);
       const isDifferentSheet = currentReference.spreadsheetId !== integration.spreadsheet_id
         || Boolean(currentReference.worksheetId && currentReference.worksheetId !== integration.worksheet_id);
-      await saveSettings(integration, integration.auto_sync, input);
+      const requestedWorksheetName = isDifferentSheet && !currentReference.worksheetId ? "Sheet1" : worksheetName;
+      if (requestedWorksheetName !== worksheetName) setWorksheetName(requestedWorksheetName);
+      await saveSettings(integration, integration.auto_sync, input, mapping, requestedWorksheetName);
       const result = await previewGoogleSheet(integration.id);
       const configuredColumns = isDifferentSheet ? undefined : mapping.visible_columns;
       const nextSelectedColumns = configuredColumns === undefined
         ? result.headers
         : result.headers.filter((column) => configuredColumns.includes(column));
+      const mappingToSave = { ...mapping, visible_columns: nextSelectedColumns };
+      await updateGoogleSheetSettings(integration.id, {
+        spreadsheet_id: currentReference.spreadsheetId,
+        worksheet_id: result.worksheetId,
+        worksheet_name: result.worksheetName,
+        column_mapping: mappingToSave,
+        auto_sync: integration.auto_sync,
+      });
+      setSpreadsheetInput(currentReference.spreadsheetId);
       setAvailableColumns(result.headers);
       setPreviewedSpreadsheetId(currentReference.spreadsheetId);
       setPreviewedWorksheetId(result.worksheetId);
       setPreviewedWorksheetName(result.worksheetName);
       setWorksheetName(result.worksheetName);
       updateSelectedColumns(nextSelectedColumns);
-      onNotify(`Found ${result.headers.length} columns. Choose which fields to show on leads, then import.`);
+      if (autoImport && result.headers.length && nextSelectedColumns.length) {
+        onNotify(`${nextSelectedColumns.length} sheet columns selected automatically. Syncing leads...`);
+        const syncResult = await syncGoogleSheet(integration.id, true);
+        await load(true);
+        onNotify(`${syncResult.newLeads} new leads imported; ${syncResult.updatedLeads} updated; ${syncResult.failedRows} failed.`);
+      } else {
+        onNotify(result.headers.length
+          ? `Found ${result.headers.length} columns. Choose which fields to show on leads, then import.`
+          : "No column headers were found in the selected worksheet.");
+      }
     } catch (error) {
+      if (autoImport) await load(true);
       onNotify(error instanceof Error ? error.message : "Sheet columns could not be loaded.");
     } finally { setBusy(false); }
   };
@@ -167,7 +188,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
       <div className="card-header"><strong>{integration.provider_account_email || "Google account"}</strong><span className="pending-pill">{integration.status}</span></div>
       {integration.spreadsheet_id === "pending-selection" && <p className="muted">After Google authorization, paste a Google Sheets link to load its available columns.</p>}
       <div className="inline-form">
-        <label>Google Sheets link or ID<input value={spreadsheetInput} onChange={(event) => setSpreadsheetInput(event.target.value)} onPaste={(event) => { const pasted = event.clipboardData.getData("text").trim(); if (pasted) { event.preventDefault(); setSpreadsheetInput(pasted); void preview(integration, pasted); } }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void preview(integration); } }} placeholder="https://docs.google.com/spreadsheets/d/..." /></label>
+        <label>Google Sheets link or ID<input value={spreadsheetInput} onChange={(event) => setSpreadsheetInput(event.target.value)} onPaste={(event) => { const pasted = event.clipboardData.getData("text").trim(); if (pasted) { event.preventDefault(); setSpreadsheetInput(pasted); void preview(integration, pasted, true); } }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void preview(integration, spreadsheetInput, true); } }} placeholder="https://docs.google.com/spreadsheets/d/..." /></label>
         <label>Worksheet / tab<input value={worksheetName} onChange={(event) => setWorksheetName(event.target.value)} placeholder="Sheet1" /></label>
         <label>Automatic sync<select value={integration.auto_sync ? "on" : "off"} onChange={(event) => void save(integration, event.target.value === "on")}><option value="off">Off</option><option value="on">On</option></select></label>
         <button className="button secondary" disabled={busy} onClick={() => void save(integration)}>Save mapping</button>

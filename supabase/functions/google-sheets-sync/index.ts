@@ -39,6 +39,23 @@ function findHeader(headers: string[], configured: unknown, aliases: string[]) {
   const candidates = [configured, ...aliases].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
   return headers.find((header) => candidates.some((candidate) => normalizedHeader(header) === normalizedHeader(candidate))) ?? null;
 }
+function normalizeSheetHeaders(values: unknown[] = []) {
+  const usedHeaders = new Map<string, number>();
+  return values.map((value, index) => {
+    const base = String(value ?? "").trim() || `Column ${index + 1}`;
+    const count = (usedHeaders.get(base) ?? 0) + 1;
+    usedHeaders.set(base, count);
+    return count === 1 ? base : `${base} (${count})`;
+  });
+}
+function scoreLeadWorksheet(headers: string[]) {
+  let score = 0;
+  if (findHeader(headers, "Full Name", ["Name", "Lead Name", "Customer Name", "Contact Name"])) score += 100;
+  if (findHeader(headers, "Phone", ["Phone Number", "Mobile", "Mobile Number", "Contact Number"])) score += 40;
+  if (findHeader(headers, "Email", ["Email Address", "E-mail"])) score += 20;
+  const leadSignals = ["createdtime", "adid", "adname", "adsetid", "adsetname", "campaignid", "campaignname", "formid", "formname", "leadstatus", "isorganic", "platform", "response"];
+  return score + headers.reduce((total, header) => total + (leadSignals.includes(normalizedHeader(header)) ? 5 : 0), 0);
+}
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -86,10 +103,31 @@ Deno.serve(async (request) => {
     }
     const metadata = await metadataResponse.json() as { sheets?: Array<{ properties?: { sheetId?: number; title?: string } }> };
     const requestedWorksheetName = String(integration.worksheet_name || "Sheet1");
-    const selectedSheet = integration.worksheet_id
+    let selectedSheet = integration.worksheet_id
       ? metadata.sheets?.find((sheet) => String(sheet.properties?.sheetId) === String(integration.worksheet_id))
-      : metadata.sheets?.find((sheet) => sheet.properties?.title === requestedWorksheetName)
-        ?? (requestedWorksheetName === "Sheet1" ? metadata.sheets?.[0] : undefined);
+      : metadata.sheets?.find((sheet) => sheet.properties?.title === requestedWorksheetName);
+    if (!integration.worksheet_id && !selectedSheet && requestedWorksheetName === "Sheet1") {
+      let bestScore = 0;
+      for (const sheet of metadata.sheets ?? []) {
+        const title = sheet.properties?.title;
+        if (!title) continue;
+        const tabRange = `'${title.replace(/'/g, "''")}'!A1:ZZ1`;
+        const tabResponse = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(integration.spreadsheet_id)}/values/${encodeURIComponent(tabRange)}?majorDimension=ROWS`, { headers: { authorization: `Bearer ${accessToken}` } });
+        if (!tabResponse.ok) {
+          const payload = await tabResponse.json().catch(() => null) as { error?: { message?: unknown } } | null;
+          const detail = typeof payload?.error?.message === "string" ? payload.error.message : "worksheet headers could not be read";
+          throw new Error(`Google Sheets header read failed (${tabResponse.status}): ${detail}`);
+        }
+        const tabValues = (await tabResponse.json()).values as unknown[][] | undefined;
+        const tabHeaders = normalizeSheetHeaders(tabValues?.[0] ?? []);
+        const score = scoreLeadWorksheet(tabHeaders);
+        if (score > bestScore) {
+          bestScore = score;
+          selectedSheet = sheet;
+        }
+      }
+      if (!selectedSheet) selectedSheet = metadata.sheets?.find((sheet) => sheet.properties?.title === "Sheet1") ?? metadata.sheets?.[0];
+    }
     if (!selectedSheet?.properties?.title || selectedSheet.properties.sheetId === undefined) {
       throw new Error("The worksheet tab from the link was not found. Choose an existing worksheet name.");
     }
@@ -107,13 +145,7 @@ Deno.serve(async (request) => {
       throw new Error(`Google Sheets read failed (${response.status}): ${detail}`);
     }
     const values = (await response.json()).values as string[][] | undefined;
-    const usedHeaders = new Map<string, number>();
-    const headers = (values?.[0] ?? []).map((value, index) => {
-      const base = String(value ?? "").trim() || `Column ${index + 1}`;
-      const count = (usedHeaders.get(base) ?? 0) + 1;
-      usedHeaders.set(base, count);
-      return count === 1 ? base : `${base} (${count})`;
-    });
+    const headers = normalizeSheetHeaders(values?.[0] ?? []);
     if (action === "preview") return json({ status: "previewed", worksheetId: String(selectedSheet.properties.sheetId), worksheetName, headers: [...new Set(headers)] });
     if (!values?.length) return json({ status: "completed", totalRows: 0, newLeads: 0, updatedLeads: 0, duplicateRows: 0, failedRows: 0 });
     const mapping = integration.column_mapping as Record<string, unknown>;
