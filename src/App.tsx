@@ -859,7 +859,44 @@ function LeadDetails({ lead, events, salespeople, onClose, onNotify, onRefresh }
     }
     onNotify("WhatsApp opened. Delivery is not confirmed by click-to-chat.");
   };
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="modal lead-details"><div className="modal-head"><div><p className="eyebrow">LEAD JOURNEY</p><h2>{lead.full_name}</h2><p className="muted">{lead.external_id} · {lead.source}</p></div><button className="icon-button" onClick={onClose}><X size={19} /></button></div><div className="lead-detail-grid"><div><h3>Permanent timeline</h3><div className="timeline">{events.length ? events.map((event) => <div className="timeline-event" key={event.id}><span /><div><strong>{event.event_type.replace(/_/g, " ")}</strong><small>{new Date(event.created_at).toLocaleString()} {event.actor_name ? `· ${event.actor_name}` : ""}</small>{event.notes && <p>{event.notes}</p>}</div></div>) : <p className="muted">No journey events are available yet.</p>}</div><div className="whatsapp-box"><h3>Personal WhatsApp</h3><textarea value={whatsappText} onChange={(event) => setWhatsappText(event.target.value)} /><button className="button secondary" type="button" onClick={openWhatsApp}>Open WhatsApp</button><small>Opened only; delivery is not confirmed.</small></div></div><form className="share-panel" onSubmit={submit}><div className="share-tabs"><button type="button" className={mode === "share" ? "active" : ""} onClick={() => setMode("share")}>Share access</button><button type="button" className={mode === "transfer" ? "active" : ""} onClick={() => setMode("transfer")}>Transfer owner</button></div><label>Salesperson<select required value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Select teammate</option>{salespeople.filter((person) => person.user_id !== lead.assigned_to).map((person) => <option key={person.user_id} value={person.user_id}>{person.profiles?.full_name || person.user_id.slice(0, 8)}</option>)}</select></label>{mode === "share" && <label>Access expiry<input type="datetime-local" value={expiry} onChange={(event) => setExpiry(event.target.value)} /></label>}<label>{mode === "share" ? "Reason" : "Transfer reason"}<textarea required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain this lead action" /></label><button className="button primary" disabled={busy}>{busy ? "Saving..." : mode === "share" ? "Share lead access" : "Transfer ownership"}</button></form></div></section></div>;
+  const coreDetails: Array<[string, unknown]> = [
+    ["Company", lead.company], ["Phone", lead.phone], ["Email", lead.email],
+    ["City", lead.city], ["State", lead.state], ["Status", lead.status],
+    ["Priority", lead.priority], ["Next follow-up", lead.next_follow_up_at],
+  ];
+  const visibleCoreDetails = coreDetails.filter(([, value]) => value !== null && value !== undefined && value !== "");
+  const importedDetails = Object.entries(lead.custom_fields ?? {}).filter(([, value]) => value !== null && value !== undefined && value !== "");
+  const displayFieldValue = (value: unknown) => typeof value === "string" ? value : JSON.stringify(value);
+  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section className="modal lead-details">
+      <div className="modal-head">
+        <div><p className="eyebrow">LEAD JOURNEY</p><h2>{lead.full_name}</h2><p className="muted">{lead.external_id} · {lead.source}</p></div>
+        <button className="icon-button" onClick={onClose}><X size={19} /></button>
+      </div>
+      <div className="lead-detail-grid">
+        <div>
+          <section className="lead-record-fields">
+            <h3>Lead details</h3>
+            <dl>{visibleCoreDetails.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{displayFieldValue(value)}</dd></div>)}</dl>
+            {importedDetails.length > 0 && <>
+              <h3>Imported sheet details</h3>
+              <dl>{importedDetails.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{displayFieldValue(value)}</dd></div>)}</dl>
+            </>}
+          </section>
+          <h3>Permanent timeline</h3>
+          <div className="timeline">{events.length ? events.map((event) => <div className="timeline-event" key={event.id}><span /><div><strong>{event.event_type.replace(/_/g, " ")}</strong><small>{new Date(event.created_at).toLocaleString()} {event.actor_name ? `· ${event.actor_name}` : ""}</small>{event.notes && <p>{event.notes}</p>}</div></div>) : <p className="muted">No journey events are available yet.</p>}</div>
+          <div className="whatsapp-box"><h3>Personal WhatsApp</h3><textarea value={whatsappText} onChange={(event) => setWhatsappText(event.target.value)} /><button className="button secondary" type="button" onClick={openWhatsApp}>Open WhatsApp</button><small>Opened only; delivery is not confirmed.</small></div>
+        </div>
+        <form className="share-panel" onSubmit={submit}>
+          <div className="share-tabs"><button type="button" className={mode === "share" ? "active" : ""} onClick={() => setMode("share")}>Share access</button><button type="button" className={mode === "transfer" ? "active" : ""} onClick={() => setMode("transfer")}>Transfer owner</button></div>
+          <label>Salesperson<select required value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Select teammate</option>{salespeople.filter((person) => person.user_id !== lead.assigned_to).map((person) => <option key={person.user_id} value={person.user_id}>{person.profiles?.full_name || person.user_id.slice(0, 8)}</option>)}</select></label>
+          {mode === "share" && <label>Access expiry<input type="datetime-local" value={expiry} onChange={(event) => setExpiry(event.target.value)} /></label>}
+          <label>{mode === "share" ? "Reason" : "Transfer reason"}<textarea required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain this lead action" /></label>
+          <button className="button primary" disabled={busy}>{busy ? "Saving..." : mode === "share" ? "Share lead access" : "Transfer ownership"}</button>
+        </form>
+      </div>
+    </section>
+  </div>;
 }
 
 function CallingWorkspace({ leads, membership, hasMore, isLoadingMore, onLoadMore, onNotify }: { leads: Lead[]; membership: Membership | null; hasMore: boolean; isLoadingMore: boolean; onLoadMore: () => Promise<boolean>; onNotify: (message: string) => void }) {

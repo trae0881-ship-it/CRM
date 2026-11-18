@@ -1,6 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { runInNewContext } from "node:vm";
+import ts from "typescript";
+
+test("Google Sheets links and IDs normalize to a spreadsheet ID", async () => {
+  const helper = await readFile(new URL("../src/lib/googleSheetsSync.ts", import.meta.url), "utf8");
+  const compiled = ts.transpileModule(helper, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
+  const exports = {};
+  runInNewContext(compiled, { exports, URL, URLSearchParams });
+  const normalize = exports.normalizeGoogleSpreadsheetId;
+  const parseReference = exports.parseGoogleSpreadsheetReference;
+
+  assert.equal(normalize(" https://docs.google.com/spreadsheets/d/sheet_id-123/edit?gid=0 "), "sheet_id-123");
+  assert.equal(normalize("sheet_id-123"), "sheet_id-123");
+  const reference = parseReference("https://docs.google.com/spreadsheets/d/1aDOn-YOFut16E3b6Thi7bYA2BcO53bH-SvtovH9T-tY/edit?gid=267409442#gid=267409442");
+  assert.equal(reference.spreadsheetId, "1aDOn-YOFut16E3b6Thi7bYA2BcO53bH-SvtovH9T-tY");
+  assert.equal(reference.worksheetId, "267409442");
+  assert.throws(() => normalize("https://docs.google.com/document/d/not-a-sheet"), /Google Sheets link/);
+  assert.throws(() => normalize("https://example.com/spreadsheets/d/sheet_id-123"), /Google Sheets link/);
+});
 
 test("Google Sheets lead mapping defines contact normalization and validation", async () => {
   const helper = await readFile(new URL("../src/lib/googleSheetsSync.ts", import.meta.url), "utf8");
@@ -46,6 +65,23 @@ test("Google Sheets Edge Functions handle browser preflight and notify the OAuth
   assert.match(sync, /request\.method === "OPTIONS"/);
 });
 
+test("Google Sheets import selects the linked tab and preserves every sheet column", async () => {
+  const view = await readFile(new URL("../src/components/GoogleSheetsView.tsx", import.meta.url), "utf8");
+  const sync = await readFile(new URL("../supabase/functions/google-sheets-sync/index.ts", import.meta.url), "utf8");
+  const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  assert.match(view, /Google Sheets link or ID/);
+  assert.match(view, /parseGoogleSpreadsheetReference\(input\)/);
+  assert.match(view, /onPaste=\{\(event\).*saveAndImport\(integration, pasted\)/);
+  assert.match(view, /Save & Import Leads/);
+  assert.match(view, /await saveSettings\(integration, integration\.auto_sync, input\);\s*const result = await syncGoogleSheet/);
+  assert.match(sync, /String\(sheet\.properties\?\.sheetId\) === String\(integration\.worksheet_id\)/);
+  assert.match(sync, /requestedWorksheetName === "Sheet1" \? metadata\.sheets\?\.\[0\]/);
+  assert.match(sync, /const quotedWorksheetName = worksheetName\.replace\(\/'\/g, "''"\)/);
+  assert.match(sync, /Object\.fromEntries\(headers\.map/);
+  assert.match(app, /Imported sheet details/);
+  assert.match(sync, /const range = `'\$\{quotedWorksheetName\}'!A1:ZZ/);
+});
+
 test("organization Integrations page exposes existing Google Sheets and WhatsApp workflows", async () => {
   const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   const routes = await readFile(new URL("../src/lib/roleRoutes.ts", import.meta.url), "utf8");
@@ -81,6 +117,8 @@ test("Google Sheets setup documents free-tier prerequisites and the public OAuth
   assert.match(docs, /Register the exact callback URL/);
   assert.match(docs, /google-sheets-oauth --no-verify-jwt/);
   assert.match(docs, /bearer token and organization-admin membership/);
+  assert.match(docs, /Pasting a link automatically saves it and starts the import/);
+  assert.match(docs, /preserves every non-empty source column/);
 });
 
 test("Google Sheets connection reports Edge Function reachability failures with deployment guidance", async () => {

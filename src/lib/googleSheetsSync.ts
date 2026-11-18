@@ -2,6 +2,7 @@ export type GoogleLeadMapping = {
   full_name: string;
   phone?: string;
   email?: string;
+  company?: string;
   city?: string;
   state?: string;
   source?: string;
@@ -10,6 +11,40 @@ export type GoogleLeadMapping = {
   notes?: string;
   source_id?: string;
 };
+
+export type GoogleSpreadsheetReference = {
+  spreadsheetId: string;
+  worksheetId: string | null;
+};
+
+export function parseGoogleSpreadsheetReference(input: string): GoogleSpreadsheetReference {
+  const value = input.trim();
+  if (!value) throw new Error("Paste a Google Sheets link or spreadsheet ID.");
+
+  if (/^[\w-]+$/.test(value)) return { spreadsheetId: value, worksheetId: null };
+
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Enter a valid Google Sheets link or spreadsheet ID.");
+  }
+
+  const match = url.protocol === "https:" && url.hostname === "docs.google.com"
+    ? url.pathname.match(/^\/spreadsheets\/d\/([\w-]+)(?:\/|$)/)
+    : null;
+  if (!match) throw new Error("Use a Google Sheets link in the format docs.google.com/spreadsheets/d/...");
+  const fragment = new URLSearchParams(url.hash.slice(1));
+  const rawWorksheetId = url.searchParams.get("gid") ?? fragment.get("gid");
+  return {
+    spreadsheetId: match[1],
+    worksheetId: rawWorksheetId && /^\d+$/.test(rawWorksheetId) ? rawWorksheetId : null,
+  };
+}
+
+export function normalizeGoogleSpreadsheetId(input: string): string {
+  return parseGoogleSpreadsheetReference(input).spreadsheetId;
+}
 
 export function normalizePhone(value: unknown): string | null {
   const digits = String(value ?? "").replace(/[^\d+]/g, "");

@@ -26,6 +26,15 @@ The OAuth callback URI is derived from the server-side `SUPABASE_URL`. Do not co
 
 For OAuth apps used outside their test users, Google may require consent-screen verification for requested scopes. A Supabase free plan does not remove that Google requirement. Manual sync does not require a scheduler; automatic sync requires separately configured trusted scheduling.
 
+## Import leads from a sheet
+
+1. Connect the Google account that can access the spreadsheet.
+2. Paste the full `https://docs.google.com/spreadsheets/d/...` link or its spreadsheet ID. Pasting a link automatically saves it and starts the import. Links with a `gid` select that exact worksheet tab; when there is no `gid`, the configured tab is used, or the first tab is selected when the configured name is the default `Sheet1`.
+3. If needed, enter the worksheet/tab name and make the Full Name column mapping match the header in the first row. Common contact headers are detected automatically.
+4. The import maps recognized contact columns to lead fields and preserves every non-empty source column in the lead's imported sheet details. Use **Save & Import Leads** for manual entry, or **Sync Now** for a later refresh.
+
+The sheet must be accessible to the authorized Google account. Import results and row errors are shown in the integration panel; a successful OAuth connection alone does not import data.
+
 ## Troubleshooting: "Failed to send a request to the Edge Function"
 
 The Google provider shown under Supabase Auth → Sign In / Providers is for Supabase user sign-in. It does not host or deploy the Google Sheets integration functions.

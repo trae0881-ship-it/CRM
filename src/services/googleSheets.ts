@@ -60,7 +60,7 @@ export async function listGoogleSheetIntegrations(organizationId: string) {
   return (data ?? []) as GoogleSheetIntegration[];
 }
 
-export async function updateGoogleSheetSettings(id: string, patch: { spreadsheet_id?: string; worksheet_id?: string; worksheet_name?: string; column_mapping?: GoogleLeadMapping; auto_sync?: boolean; sync_frequency_minutes?: number; row_limit?: number }) {
+export async function updateGoogleSheetSettings(id: string, patch: { spreadsheet_id?: string; worksheet_id?: string | null; worksheet_name?: string; column_mapping?: GoogleLeadMapping; auto_sync?: boolean; sync_frequency_minutes?: number; row_limit?: number }) {
   const { data, error } = await client().from("google_sheet_integrations").update(patch).eq("id", id).select("*").single();
   if (error) throw error;
   return data as GoogleSheetIntegration;
