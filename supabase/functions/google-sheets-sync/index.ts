@@ -172,12 +172,11 @@ Deno.serve(async (request) => {
     const errors: Array<{ row: number; error: string }> = [];
     for (let index = 1; index < values.length && index <= integration.row_limit; index += 1) {
       const record = Object.fromEntries(headers.map((header, column) => [header, values[index][column] ?? ""]));
+      if (Object.values(record).every((value) => !String(value ?? "").trim())) continue;
       try {
         const fullName = String(record[nameHeader] ?? "").trim(); if (!fullName) throw new Error("Lead name is required");
         const phone = phoneHeader ? normalizePhone(record[phoneHeader]) : null;
         const email = emailHeader ? normalizeEmail(record[emailHeader]) : null;
-        if (phoneHeader && record[phoneHeader] && !phone) throw new Error("Invalid phone number");
-        if (emailHeader && record[emailHeader] && !email) throw new Error("Invalid email address");
         const rowKey = `${integration.spreadsheet_id}:${integration.worksheet_id || integration.worksheet_name}:${sourceIdHeader ? String(record[sourceIdHeader] || index) : `${email || ""}:${phone || ""}:${fullName.toLowerCase()}`}`;
         const rowHash = await sha256(JSON.stringify({ record, visibleColumns }));
         const existingSource = await db.from("google_sheet_source_rows").select("id,lead_id,row_hash").eq("integration_id", integration.id).eq("source_row_key", rowKey).maybeSingle();
@@ -222,7 +221,11 @@ Deno.serve(async (request) => {
         else { const inserted = await db.from("leads").insert({ ...patch, organization_id: integration.organization_id, created_by: actorId, updated_by: actorId }).select("id").single(); if (inserted.error) throw inserted.error; lead = inserted.data; newLeads += 1; }
         const sourceRow = await db.from("google_sheet_source_rows").upsert({ integration_id: integration.id, organization_id: integration.organization_id, source_row_key: rowKey, source_row_number: index + 1, row_hash: rowHash, lead_id: lead.id, source_status: "active", last_seen_at: new Date().toISOString(), last_error: null }, { onConflict: "integration_id,source_row_key" });
         if (sourceRow.error) throw sourceRow.error;
-      } catch (error) { failedRows += 1; errors.push({ row: index + 1, error: error instanceof Error ? error.message : "Row import failed" }); }
+      } catch (error) {
+        failedRows += 1;
+        const message = error instanceof Error ? error.message : "Row import failed";
+        errors.push({ row: index + 1, error: message.slice(0, 240) });
+      }
     }
     const markedMissing = await db.from("google_sheet_source_rows").update({ source_status: "missing", updated_at: new Date().toISOString() }).eq("integration_id", integration.id).eq("source_status", "active").lt("last_seen_at", startedAt);
     if (markedMissing.error) throw markedMissing.error;
@@ -230,6 +233,10 @@ Deno.serve(async (request) => {
     if (finishedRun.error) throw finishedRun.error;
     const finishedIntegration = await db.from("google_sheet_integrations").update({ last_successful_sync_at: failedRows ? integration.last_successful_sync_at : new Date().toISOString(), total_rows_processed: values.length - 1, new_leads_imported: newLeads, existing_leads_updated: updatedLeads, duplicate_rows_skipped: duplicateRows, failed_rows: failedRows, last_error: errors.length ? JSON.stringify(errors.slice(0, 10)) : null, updated_at: new Date().toISOString() }).eq("id", integration.id);
     if (finishedIntegration.error) throw finishedIntegration.error;
-    return json({ runId: run.data.id, status: failedRows ? "failed" : "completed", totalRows: values.length - 1, newLeads, updatedLeads, duplicateRows, failedRows });
-  } catch (error) { return json({ error: error instanceof Error ? error.message : "Google Sheets sync failed" }, 500); }
+    return json({ runId: run.data.id, status: failedRows ? "failed" : "completed", totalRows: values.length - 1, newLeads, updatedLeads, duplicateRows, failedRows, errors: errors.slice(0, 10) });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Google Sheets sync failed";
+    console.error("Google Sheets sync failed", message);
+    return json({ error: message }, 500);
+  }
 });

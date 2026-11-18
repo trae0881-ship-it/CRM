@@ -89,9 +89,15 @@ test("Google Sheets preview exposes worksheet columns for organization-selected 
   assert.match(sync, /_google_sheets_visible_columns: visibleColumns/);
   assert.match(view, /columns selected automatically\. Syncing leads/);
   assert.match(sync, /"Phone Number"/);
+  assert.match(sync, /Object\.values\(record\)\.every\(\(value\) => !String\(value \?\? ""\)\.trim\(\)\)\) continue/);
+  assert.doesNotMatch(sync, /if \(phoneHeader && record\[phoneHeader\] && !phone\)/);
+  assert.doesNotMatch(sync, /if \(emailHeader && record\[emailHeader\] && !email\)/);
+  assert.match(sync, /errors: errors\.slice\(0, 10\)/);
   assert.match(sync, /Object\.fromEntries\(headers\.map/);
   assert.match(app, /Imported sheet details/);
   assert.match(app, /visibleSheetColumns\.includes\(key\)/);
+  assert.match(view, /First errors: \$\{details\}/);
+  assert.match(view, /formatRunErrors\(run\.errors\)/);
   assert.match(sync, /const range = action === "preview" \? `'\$\{quotedWorksheetName\}'!A1:ZZ1` : `'\$\{quotedWorksheetName\}'!A1:ZZ/);
 });
 

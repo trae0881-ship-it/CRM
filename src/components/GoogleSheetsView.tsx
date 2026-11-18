@@ -2,10 +2,26 @@ import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Link2, RefreshCw, Unplug } from "lucide-react";
 import type { Membership } from "../services/workspace";
 import { isOrganizationId } from "../lib/organizationId";
-import { disconnectGoogleSheet, listGoogleSheetIntegrations, listGoogleSyncRuns, previewGoogleSheet, startGoogleOAuth, syncGoogleSheet, updateGoogleSheetSettings, type GoogleSheetIntegration } from "../services/googleSheets";
+import { disconnectGoogleSheet, listGoogleSheetIntegrations, listGoogleSyncRuns, previewGoogleSheet, startGoogleOAuth, syncGoogleSheet, updateGoogleSheetSettings, type GoogleSheetIntegration, type GoogleSheetSyncResult } from "../services/googleSheets";
 import { parseGoogleSpreadsheetReference, type GoogleLeadMapping } from "../lib/googleSheetsSync";
 
 const defaultMapping: GoogleLeadMapping = { full_name: "Full Name", phone: "Phone", email: "Email", city: "City", state: "State", source: "Source" };
+
+function formatSyncResult(result: GoogleSheetSyncResult) {
+  const summary = `${result.newLeads} new leads imported; ${result.updatedLeads} updated; ${result.failedRows} failed.`;
+  const details = (result.errors ?? []).slice(0, 3).map(({ row, error }) => `Row ${row}: ${error}`).join(" · ");
+  return details ? `${summary} First errors: ${details}` : summary;
+}
+
+function formatRunErrors(value: unknown) {
+  if (!Array.isArray(value)) return "—";
+  return value.slice(0, 3).map((item) => {
+    if (typeof item !== "object" || item === null) return "";
+    const row = "row" in item && typeof item.row === "number" ? `Row ${item.row}: ` : "";
+    const message = "error" in item && typeof item.error === "string" ? item.error : "";
+    return `${row}${message}`;
+  }).filter(Boolean).join(" · ") || "—";
+}
 
 export function GoogleSheetsView({ membership, onNotify }: { membership: Membership; onNotify: (message: string) => void }) {
   const [integrations, setIntegrations] = useState<GoogleSheetIntegration[]>([]);
@@ -146,7 +162,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
         onNotify(`${nextSelectedColumns.length} sheet columns selected automatically. Syncing leads...`);
         const syncResult = await syncGoogleSheet(integration.id, true);
         await load(true);
-        onNotify(`${syncResult.newLeads} new leads imported; ${syncResult.updatedLeads} updated; ${syncResult.failedRows} failed.`);
+        onNotify(formatSyncResult(syncResult));
       } else {
         onNotify(result.headers.length
           ? `Found ${result.headers.length} columns. Choose which fields to show on leads, then import.`
@@ -172,7 +188,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
       await saveSettings(integration, integration.auto_sync, input, mappingToSave);
       const result = await syncGoogleSheet(integration.id, true);
       await load();
-      onNotify(`${result.newLeads} new leads imported; ${result.updatedLeads} updated; ${result.failedRows} failed.`);
+      onNotify(formatSyncResult(result));
     } catch (error) {
       await load();
       onNotify(error instanceof Error ? error.message : "Google Sheets import failed.");
@@ -217,6 +233,6 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
       <p className="muted">Rows: {integration.total_rows_processed} · New: {integration.new_leads_imported} · Updated: {integration.existing_leads_updated} · Failed: {integration.failed_rows}</p>
     </div>)}
     {!integrations.length && <div className="empty-state"><CheckCircle2 size={18} /><p>No Google account is connected.</p><p className="muted">First-time setup requires deployed Supabase Edge Functions and Google OAuth secrets configured server-side.</p></div>}
-    {runs.length > 0 && <div className="table-card"><h3>Sync history</h3><table><thead><tr><th>STARTED</th><th>STATUS</th><th>ROWS</th><th>FAILED</th></tr></thead><tbody>{runs.map((run) => <tr key={String(run.id)}><td>{String(run.started_at)}</td><td>{String(run.status)}</td><td>{String(run.total_rows)}</td><td>{String(run.failed_rows)}</td></tr>)}</tbody></table></div>}
+    {runs.length > 0 && <div className="table-card"><h3>Sync history</h3><table><thead><tr><th>STARTED</th><th>STATUS</th><th>ROWS</th><th>FAILED</th><th>DETAILS</th></tr></thead><tbody>{runs.map((run) => <tr key={String(run.id)}><td>{String(run.started_at)}</td><td>{String(run.status)}</td><td>{String(run.total_rows)}</td><td>{String(run.failed_rows)}</td><td>{formatRunErrors(run.errors)}</td></tr>)}</tbody></table></div>}
   </section>;
 }

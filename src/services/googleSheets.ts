@@ -47,6 +47,17 @@ export type GoogleSheetIntegration = {
   last_error: string | null;
 };
 
+export type GoogleSheetSyncResult = {
+  runId: string;
+  status: string;
+  totalRows: number;
+  newLeads: number;
+  updatedLeads: number;
+  duplicateRows: number;
+  failedRows: number;
+  errors?: Array<{ row: number; error: string }>;
+};
+
 export async function startGoogleOAuth(organizationId: string) {
   if (!isOrganizationId(organizationId)) {
     throw new Error("A valid active organization is required before connecting Google Sheets.");
@@ -67,7 +78,7 @@ export async function updateGoogleSheetSettings(id: string, patch: { spreadsheet
 }
 
 export async function syncGoogleSheet(id: string, confirmInitialImport = false) {
-  return invokeGoogleFunction<{ runId: string; status: string; totalRows: number; newLeads: number; updatedLeads: number; duplicateRows: number; failedRows: number }>("google-sheets-sync", { integrationId: id, confirmInitialImport });
+  return invokeGoogleFunction<GoogleSheetSyncResult>("google-sheets-sync", { integrationId: id, confirmInitialImport });
 }
 
 export async function previewGoogleSheet(id: string) {
