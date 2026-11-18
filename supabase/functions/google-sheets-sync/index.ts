@@ -105,8 +105,10 @@ Deno.serve(async (request) => {
     const requestedWorksheetName = String(integration.worksheet_name || "Sheet1");
     let selectedSheet = integration.worksheet_id
       ? metadata.sheets?.find((sheet) => String(sheet.properties?.sheetId) === String(integration.worksheet_id))
-      : metadata.sheets?.find((sheet) => sheet.properties?.title === requestedWorksheetName);
-    if (!integration.worksheet_id && !selectedSheet && requestedWorksheetName === "Sheet1") {
+      : requestedWorksheetName === "Sheet1"
+        ? undefined
+        : metadata.sheets?.find((sheet) => sheet.properties?.title === requestedWorksheetName);
+    if (!integration.worksheet_id && requestedWorksheetName === "Sheet1") {
       let bestScore = 0;
       for (const sheet of metadata.sheets ?? []) {
         const title = sheet.properties?.title;
@@ -120,7 +122,7 @@ Deno.serve(async (request) => {
         }
         const tabValues = (await tabResponse.json()).values as unknown[][] | undefined;
         const tabHeaders = normalizeSheetHeaders(tabValues?.[0] ?? []);
-        const score = scoreLeadWorksheet(tabHeaders);
+        const score = scoreLeadWorksheet(tabHeaders) + (normalizedHeader(title).includes("lead") ? 10 : 0);
         if (score > bestScore) {
           bestScore = score;
           selectedSheet = sheet;

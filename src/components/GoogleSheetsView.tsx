@@ -114,6 +114,13 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
         || Boolean(currentReference.worksheetId && currentReference.worksheetId !== integration.worksheet_id);
       const requestedWorksheetName = isDifferentSheet && !currentReference.worksheetId ? "Sheet1" : worksheetName;
       if (requestedWorksheetName !== worksheetName) setWorksheetName(requestedWorksheetName);
+      if (isDifferentSheet) {
+        setAvailableColumns([]);
+        setSelectedColumns([]);
+        setPreviewedSpreadsheetId("");
+        setPreviewedWorksheetId("");
+        setPreviewedWorksheetName("");
+      }
       await saveSettings(integration, integration.auto_sync, input, mapping, requestedWorksheetName);
       const result = await previewGoogleSheet(integration.id);
       const configuredColumns = isDifferentSheet ? undefined : mapping.visible_columns;

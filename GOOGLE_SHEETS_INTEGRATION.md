@@ -29,9 +29,9 @@ For OAuth apps used outside their test users, Google may require consent-screen 
 ## Import leads from a sheet
 
 1. Connect the Google account that can access the spreadsheet.
-2. Paste the full `https://docs.google.com/spreadsheets/d/...` link or its spreadsheet ID. The app reads the first row to show available columns; links with a `gid` select that exact worksheet tab.
-3. Select the columns the organization should see in lead details. Common contact headers are detected automatically; change the Full Name, Phone, and Email mappings if needed.
-4. Choose **Save & Import Leads** to import. Selected sheet fields appear in each lead's details; later refreshes use **Sync Now**.
+2. Paste the full `https://docs.google.com/spreadsheets/d/...` link or its spreadsheet ID. A link with `gid` selects that exact tab. Without `gid`, the sync function checks each tab's first row and chooses the strongest lead-header match (with a lead-named tab preferred); if no lead columns match, it uses the first tab.
+3. On a new sheet, all discovered columns are selected automatically and the import starts. The organization admin can change the visible-column checkboxes later and choose **Sync Now** to apply the updated selection.
+4. Common contact headers such as `full_name`, `phone_number`, and `email` map to CRM fields. Other source columns are preserved on the lead; selected fields appear in the lead details.
 
 The sheet must be accessible to the authorized Google account. Import results and row errors are shown in the integration panel; a successful OAuth connection alone does not import data.
 
