@@ -13,13 +13,13 @@ Configure these only in Supabase Edge Function secrets:
 - `GOOGLE_SHEETS_TOKEN_ENCRYPTION_KEY` (base64-encoded 32-byte key)
 - `GOOGLE_SHEETS_SYNC_CRON_SECRET` (random scheduler-only secret)
 
-The OAuth callback URI is derived from the incoming `google-sheets-oauth` Edge Function request. Do not configure an app route or a `GOOGLE_SHEETS_REDIRECT_URI` secret. Register the exact deployed function URL as an authorized redirect URI in Google Cloud.
+The OAuth callback URI is derived from the server-side `SUPABASE_URL`. Do not configure an app route or a `GOOGLE_SHEETS_REDIRECT_URI` secret. Register the exact deployed function URL as an authorized redirect URI in Google Cloud.
 
 ## First-time setup
 
 1. Apply the existing database migrations through `202611020019_google_sheets_and_pipeline_access.sql` in the intended Supabase project. Do not recreate the integration tables.
 2. In Google Cloud Console, enable the Google Sheets API, configure the OAuth consent screen, and create a Web application OAuth client. Add the Google account used for testing as a test user while the consent screen is in testing.
-3. Register the exact callback URL `https://<project-ref>.supabase.co/functions/v1/google-sheets-oauth` as an authorized redirect URI on the Google OAuth Web client. The function derives this URI from its own request URL; it does not redirect to `crm.adometa.in` or an organization route.
+3. Register the exact callback URL `https://<project-ref>.supabase.co/functions/v1/google-sheets-oauth` as an authorized redirect URI on the Google OAuth Web client. The function derives this URI from server-side `SUPABASE_URL`; it does not redirect to `crm.adometa.in` or an organization route.
 4. Configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_SHEETS_TOKEN_ENCRYPTION_KEY` as Supabase Edge Function secrets. Keep the client secret and encryption key server-side; never add them to frontend environment variables. `GOOGLE_SHEETS_SYNC_CRON_SECRET` is optional unless a trusted scheduler is configured.
 5. Deploy `google-sheets-oauth` with JWT gateway verification disabled so Google's callback can reach it: `supabase functions deploy google-sheets-oauth --no-verify-jwt`. Its POST actions still validate the user's bearer token and organization-admin membership in the function; the callback validates a one-time, expiring OAuth state.
 6. Deploy `google-sheets-sync` normally: `supabase functions deploy google-sheets-sync`. Apply migrations before testing. The browser sends the user's session token for manual sync.

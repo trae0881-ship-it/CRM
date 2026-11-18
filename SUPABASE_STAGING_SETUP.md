@@ -40,7 +40,7 @@ Deploy only after migration history has been checked and the function source has
 - `GOOGLE_SHEETS_SYNC_CRON_SECRET`
 Enter approved values through Supabase Edge Function Secrets or another approved secret manager. Do not print, commit or place secrets in browser storage or logs.
 
-Register the deployed `google-sheets-oauth` function URL as the Google Cloud OAuth redirect URI. The callback is derived from the function request URL, not configured as a Supabase secret.
+Register the deployed `google-sheets-oauth` function URL as the Google Cloud OAuth redirect URI. The callback is derived from server-side `SUPABASE_URL`, not configured as a separate Supabase secret.
 
 ## Function deployment inventory
 

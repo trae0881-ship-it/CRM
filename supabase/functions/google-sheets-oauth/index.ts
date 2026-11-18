@@ -7,12 +7,7 @@ const corsHeaders = {
 };
 const organizationIdPattern = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "content-type": "application/json" } });
-const getRedirectUri = (requestUrl: URL) => {
-  const callbackUrl = new URL(requestUrl);
-  callbackUrl.search = "";
-  callbackUrl.hash = "";
-  return callbackUrl.toString();
-};
+const getRedirectUri = () => new URL("/functions/v1/google-sheets-oauth", env("SUPABASE_URL")).toString();
 const callbackPage = (result: "connected" | "error", message: string, status = 200) => new Response(
   `<!doctype html><html lang="en"><meta charset="utf-8"><title>Google Sheets authorization</title><body><p>${message}</p><script>if(window.opener){window.opener.postMessage({type:"adometa-google-sheets-${result}"},"*");window.close();}</script></body></html>`,
   { status, headers: { ...corsHeaders, "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
@@ -60,7 +55,7 @@ Deno.serve(async (request) => {
       const admin = getAdmin();
       const { data: oauthState, error: stateError } = await admin.from("google_oauth_states").select("*").eq("state_hash", await sha256(state)).is("used_at", null).gt("expires_at", new Date().toISOString()).single();
       if (stateError || !oauthState) return callbackPage("error", "Google authorization expired. Please try connecting again.", 400);
-      const tokenResponse = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: env("GOOGLE_CLIENT_ID"), client_secret: env("GOOGLE_CLIENT_SECRET"), redirect_uri: getRedirectUri(url), grant_type: "authorization_code" }) });
+      const tokenResponse = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: env("GOOGLE_CLIENT_ID"), client_secret: env("GOOGLE_CLIENT_SECRET"), redirect_uri: getRedirectUri(), grant_type: "authorization_code" }) });
       if (!tokenResponse.ok) return callbackPage("error", "Google authorization failed. Check the OAuth client and callback configuration.", 400);
       const tokens = await tokenResponse.json();
       if (!tokens.refresh_token) return callbackPage("error", "Google did not return a refresh token. Revoke Adometa access and try again.", 400);
@@ -91,7 +86,7 @@ Deno.serve(async (request) => {
       const rawState = crypto.randomUUID();
       const { error } = await admin.from("google_oauth_states").insert({ state_hash: await sha256(rawState), organization_id: body.organizationId, user_id: user.id, expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString() });
       if (error) return json({ error: "OAuth state could not be created" }, 500);
-      const params = new URLSearchParams({ client_id: env("GOOGLE_CLIENT_ID"), redirect_uri: getRedirectUri(url), response_type: "code", access_type: "offline", prompt: "consent", scope: "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly", state: rawState });
+      const params = new URLSearchParams({ client_id: env("GOOGLE_CLIENT_ID"), redirect_uri: getRedirectUri(), response_type: "code", access_type: "offline", prompt: "consent", scope: "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly", state: rawState });
       return json({ authorizationUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
     }
     if (body?.action === "disconnect" && body.integrationId) {

@@ -34,7 +34,7 @@ All values below belong in Supabase Edge Function secrets (or an approved server
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are Supabase-managed runtime values in hosted Edge Functions where available. Configure them as secrets for local function development. Never place service-role credentials in `.env` values prefixed with `VITE_`.
 
-The Google OAuth callback URI is derived from the deployed `google-sheets-oauth` request URL and registered in Google Cloud; it is not an environment variable or an organization route.
+The Google OAuth callback URI is derived from the server-side `SUPABASE_URL` and registered in Google Cloud; it is not a separate environment variable or an organization route.
 
 ## MySQL replica and server-side API
 

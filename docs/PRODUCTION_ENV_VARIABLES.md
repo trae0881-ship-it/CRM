@@ -38,7 +38,7 @@ The public contact endpoint uses only the existing API and Supabase server crede
 
 ## Edge Function integrations (only when approved and enabled)
 
-- Google Sheets: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_SHEETS_TOKEN_ENCRYPTION_KEY`; optionally `GOOGLE_SHEETS_SYNC_CRON_SECRET`. Register the deployed `google-sheets-oauth` function URL as the OAuth redirect URI in Google Cloud; the function derives it from the request URL.
+- Google Sheets: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_SHEETS_TOKEN_ENCRYPTION_KEY`; optionally `GOOGLE_SHEETS_SYNC_CRON_SECRET`. Register the deployed `google-sheets-oauth` function URL as the OAuth redirect URI in Google Cloud; the function derives it from server-side `SUPABASE_URL`.
 - Meta webhook: `META_APP_SECRET`, `META_VERIFY_TOKEN`, optional `META_GRAPH_API_VERSION`. Do not enable before a provider test and deployment review.
 - One-time Super Admin bootstrap: `SUPER_ADMIN_BOOTSTRAP_SECRET`; remove/rotate after bootstrap.
 
