@@ -869,7 +869,7 @@ function LeadDetails({ lead, events, salespeople, initialMode = "share", onClose
   const visibleCoreDetails = coreDetails.filter(([, value]) => value !== null && value !== undefined && value !== "");
   const sheetColumns = Array.isArray(lead.custom_fields?._google_sheets_columns) ? lead.custom_fields._google_sheets_columns : [];
   const visibleSheetColumns = Array.isArray(lead.custom_fields?._google_sheets_visible_columns) ? lead.custom_fields._google_sheets_visible_columns : sheetColumns;
-  const importedDetails = Object.entries(lead.custom_fields ?? {}).filter(([key, value]) => !key.startsWith("_google_sheets_")
+  const importedDetails = Object.entries(lead.custom_fields ?? {}).filter(([key, value]) => !key.startsWith("_google_sheets_") && !key.startsWith("_google_sheet_")
     && (!sheetColumns.includes(key) || visibleSheetColumns.includes(key))
     && value !== null && value !== undefined && value !== "");
   const displayFieldValue = (value: unknown) => typeof value === "string" ? value : JSON.stringify(value);

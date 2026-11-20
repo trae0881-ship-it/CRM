@@ -91,7 +91,7 @@ Deno.serve(async (request) => {
       if (!membership || !["company_owner", "organization_admin"].includes(membership.role)) return json({ error: "Google Sheets sync permission required" }, 403);
     }
     if (!integration.token_ciphertext || integration.status === "disconnected") return json({ error: "Google account is disconnected" }, 409);
-    if (integration.spreadsheet_id === "pending-selection") return json({ error: "Select a spreadsheet before syncing" }, 409);
+    if (integration.spreadsheet_id.startsWith("pending-selection")) return json({ error: "Select a spreadsheet before syncing" }, 409);
     if (action === "sync" && !integration.column_mapping?.full_name) return json({ error: "Full Name column mapping is required" }, 400);
     const token = await decryptToken(integration.token_ciphertext);
     let accessToken = token.access_token;
@@ -192,7 +192,7 @@ Deno.serve(async (request) => {
         const phone = phoneHeader ? normalizePhone(record[phoneHeader]) : null;
         const email = emailHeader ? normalizeEmail(record[emailHeader]) : null;
         const rowKey = `${integration.spreadsheet_id}:${integration.worksheet_id || integration.worksheet_name}:${sourceIdHeader ? String(record[sourceIdHeader] || index) : `${email || ""}:${phone || ""}:${fullName.toLowerCase()}`}`;
-        const rowHash = await sha256(JSON.stringify({ record, visibleColumns }));
+        const rowHash = await sha256(JSON.stringify({ record, visibleColumns, agencyName: integration.agency_name ?? "" }));
         const existingSource = await db.from("google_sheet_source_rows").select("id,lead_id,row_hash").eq("integration_id", integration.id).eq("source_row_key", rowKey).maybeSingle();
         if (existingSource.data?.row_hash === rowHash) { duplicateRows += 1; continue; }
         let lead = existingSource.data?.lead_id ? (await db.from("leads").select("id,custom_fields").eq("id", existingSource.data.lead_id).eq("organization_id", integration.organization_id).single()).data : null;
@@ -208,6 +208,14 @@ Deno.serve(async (request) => {
           ...sheetFields,
           _google_sheets_columns: headers,
           _google_sheets_visible_columns: visibleColumns,
+          ...(integration.agency_name ? {
+            _google_sheet_agencies: {
+              ...(existingCustomFields._google_sheet_agencies && typeof existingCustomFields._google_sheet_agencies === "object" && !Array.isArray(existingCustomFields._google_sheet_agencies)
+                ? existingCustomFields._google_sheet_agencies as Record<string, string>
+                : {}),
+              [integration.id]: integration.agency_name,
+            },
+          } : {}),
           ...(campaignHeader && visibleColumns.includes(campaignHeader) ? { campaign: String(record[campaignHeader] || "").trim() } : {}),
           ...(requirementHeader && visibleColumns.includes(requirementHeader) ? { requirement: String(record[requirementHeader] || "").trim() } : {}),
           ...(notesHeader && visibleColumns.includes(notesHeader) ? { notes: String(record[notesHeader] || "").trim() } : {}),

@@ -65,7 +65,7 @@ Deno.serve(async (request) => {
       if (updateStateError) return callbackPage("error", "Google authorization could not be completed. Please retry.", 500);
       const { error: integrationError } = await admin.from("google_sheet_integrations").insert({
         organization_id: oauthState.organization_id, created_by: oauthState.user_id, provider_account_email: account.email ?? null,
-        spreadsheet_id: "pending-selection", spreadsheet_name: null, status: "connected",
+        spreadsheet_id: `pending-selection:${crypto.randomUUID()}`, spreadsheet_name: null, status: "connected",
         token_ciphertext: await encryptToken(JSON.stringify({ refresh_token: tokens.refresh_token, access_token: tokens.access_token })),
         token_expires_at: new Date(Date.now() + Number(tokens.expires_in ?? 3600) * 1000).toISOString(),
       });
@@ -75,7 +75,7 @@ Deno.serve(async (request) => {
     if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
     const user = await userFromRequest(request);
     if (!user) return json({ error: "Authentication required" }, 401);
-    const body = await request.json().catch(() => null) as { action?: string; organizationId?: string; integrationId?: string } | null;
+    const body = await request.json().catch(() => null) as { action?: string; organizationId?: string; integrationId?: string; agencyName?: string } | null;
     const admin = getAdmin();
     if (body?.action === "start") {
       if (!body.organizationId || !organizationIdPattern.test(body.organizationId)) {
@@ -88,6 +88,36 @@ Deno.serve(async (request) => {
       if (error) return json({ error: "OAuth state could not be created" }, 500);
       const params = new URLSearchParams({ client_id: env("GOOGLE_CLIENT_ID"), redirect_uri: getRedirectUri(), response_type: "code", access_type: "offline", prompt: "consent", scope: "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly", state: rawState });
       return json({ authorizationUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
+    }
+    if (body?.action === "add-sheet" && body.integrationId) {
+      const { data: source, error: sourceError } = await admin.from("google_sheet_integrations")
+        .select("organization_id,provider_account_email,token_ciphertext,token_expires_at,status")
+        .eq("id", body.integrationId)
+        .single();
+      if (sourceError || !source) return json({ error: "Google connection not found" }, 404);
+      const { data: membership } = await admin.from("organization_members").select("role")
+        .eq("organization_id", source.organization_id).eq("user_id", user.id).eq("is_active", true).single();
+      if (!membership || !["company_owner", "organization_admin"].includes(membership.role)) {
+        return json({ error: "Google Sheets administration permission required" }, 403);
+      }
+      if (!source.token_ciphertext || source.status === "disconnected") {
+        return json({ error: "Reconnect this Google account before adding another sheet" }, 409);
+      }
+      const agencyName = String(body.agencyName ?? "").trim();
+      if (agencyName.length > 120) return json({ error: "Agency name must be 120 characters or fewer" }, 400);
+      const { data: created, error: createError } = await admin.from("google_sheet_integrations").insert({
+        organization_id: source.organization_id,
+        created_by: user.id,
+        provider_account_email: source.provider_account_email,
+        agency_name: agencyName || null,
+        spreadsheet_id: `pending-selection:${crypto.randomUUID()}`,
+        spreadsheet_name: null,
+        status: "connected",
+        token_ciphertext: source.token_ciphertext,
+        token_expires_at: source.token_expires_at,
+      }).select("id").single();
+      if (createError) return json({ error: "A new sheet connection could not be created" }, 500);
+      return json({ integrationId: created.id });
     }
     if (body?.action === "disconnect" && body.integrationId) {
       const { data: integration } = await admin.from("google_sheet_integrations").select("organization_id,token_ciphertext").eq("id", body.integrationId).single();

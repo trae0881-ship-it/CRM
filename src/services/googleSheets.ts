@@ -28,6 +28,7 @@ export type GoogleSheetIntegration = {
   id: string;
   organization_id: string;
   provider_account_email: string | null;
+  agency_name: string | null;
   spreadsheet_id: string;
   spreadsheet_name: string | null;
   worksheet_id: string | null;
@@ -65,13 +66,21 @@ export async function startGoogleOAuth(organizationId: string) {
   return invokeGoogleFunction<{ authorizationUrl: string }>("google-sheets-oauth", { action: "start", organizationId });
 }
 
+export async function addGoogleSheetIntegration(integrationId: string, agencyName: string) {
+  return invokeGoogleFunction<{ integrationId: string }>("google-sheets-oauth", {
+    action: "add-sheet",
+    integrationId,
+    agencyName: agencyName.trim(),
+  });
+}
+
 export async function listGoogleSheetIntegrations(organizationId: string) {
   const { data, error } = await client().from("google_sheet_integrations").select("*").eq("organization_id", organizationId).order("created_at", { ascending: false });
   if (error) throw new Error(googleSheetsErrorMessage(error, "Google Sheets integrations could not be loaded."));
   return (data ?? []) as GoogleSheetIntegration[];
 }
 
-export async function updateGoogleSheetSettings(id: string, patch: { spreadsheet_id?: string; worksheet_id?: string | null; worksheet_name?: string; column_mapping?: GoogleLeadMapping; auto_sync?: boolean; sync_frequency_minutes?: number; row_limit?: number }) {
+export async function updateGoogleSheetSettings(id: string, patch: { agency_name?: string | null; spreadsheet_id?: string; worksheet_id?: string | null; worksheet_name?: string; column_mapping?: GoogleLeadMapping; auto_sync?: boolean; sync_frequency_minutes?: number; row_limit?: number }) {
   const { data, error } = await client().from("google_sheet_integrations").update(patch).eq("id", id).select("*").single();
   if (error) throw new Error(googleSheetsErrorMessage(error, "Google Sheets settings could not be saved."));
   return data as GoogleSheetIntegration;
