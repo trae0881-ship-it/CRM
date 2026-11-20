@@ -134,7 +134,12 @@ export async function listLeadTimeline(leadId: string): Promise<LeadEvent[]> {
 }
 
 export async function listOrganizationSalespeople(organizationId: string) {
-  const { data, error } = await requireClient().from("organization_members").select("user_id,role,profiles(full_name)").eq("organization_id", organizationId).eq("is_active", true).in("role", ["agent", "manager"]);
+  const { data, error } = await requireClient()
+    .from("organization_members")
+    .select("user_id,role,profiles(full_name)")
+    .eq("organization_id", organizationId)
+    .eq("is_active", true)
+    .in("role", ["company_owner", "organization_admin", "manager", "agent"]);
   if (error) throw error;
   return (data ?? []).map((row) => ({
     user_id: String(row.user_id),

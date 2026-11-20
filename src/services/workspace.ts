@@ -324,6 +324,34 @@ export async function assignTeamManager(teamId: string, managerId: string | null
   return data as Team;
 }
 
+export async function listTeamMembers(teamId: string, organizationId: string): Promise<string[]> {
+  const { data, error } = await requireClient()
+    .from("team_members")
+    .select("user_id")
+    .eq("team_id", teamId)
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+  return (data ?? []).map((row) => String(row.user_id));
+}
+
+export async function setTeamMember(teamId: string, organizationId: string, userId: string, isMember: boolean): Promise<void> {
+  const client = requireClient();
+  if (isMember) {
+    const { error } = await client
+      .from("team_members")
+      .upsert({ team_id: teamId, organization_id: organizationId, user_id: userId }, { onConflict: "team_id,user_id" });
+    if (error) throw error;
+    return;
+  }
+  const { error } = await client
+    .from("team_members")
+    .delete()
+    .eq("team_id", teamId)
+    .eq("organization_id", organizationId)
+    .eq("user_id", userId);
+  if (error) throw error;
+}
+
 export async function getPersonalPerformance(organizationId: string, userId: string): Promise<PersonalPerformance> {
   const client = requireClient();
   const [leads, calls, due, completed, scheduledVisits, completedVisits, bookings] = await Promise.all([

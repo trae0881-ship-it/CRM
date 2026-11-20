@@ -14,7 +14,7 @@ import { personalWhatsAppUrl, recordWhatsAppOpened, renderWhatsAppTemplate } fro
 import { requestPasswordReset, signIn, signOut, signUp, updatePassword } from "./services/auth";
 import type { LeadEvent, LeadRecord, LeadStatus } from "./types/database";
 import type { Session } from "@supabase/supabase-js";
-import { createTeam, getCurrentMembership, getOrganizationProfile, getPersonalPerformance, inviteMember, listCurrentMemberships, listTeams, listUserTeamNames } from "./services/workspace";
+import { createTeam, getCurrentMembership, getOrganizationProfile, getPersonalPerformance, inviteMember, listCurrentMemberships, listOrganizationMembers, listTeamMembers, listTeams, listUserTeamNames, setTeamMember } from "./services/workspace";
 import type { Membership, MembershipOption, OrganizationProfile, PersonalPerformance, Team, WorkspaceSummary } from "./services/workspace";
 import { DashboardLayout } from "./components/DashboardLayout";
 import { PublicLayout } from "./components/PublicLayout";
@@ -119,6 +119,7 @@ function App() {
   const [selectedLead, setSelectedLead] = useState<LeadRecord | null>(null);
   const [timeline, setTimeline] = useState<LeadEvent[]>([]);
   const [salespeople, setSalespeople] = useState<Array<{ user_id: string; role: string; profiles: { full_name: string } | null }>>([]);
+  const [leadDetailsMode, setLeadDetailsMode] = useState<"share" | "transfer">("share");
   const [performance, setPerformance] = useState<PersonalPerformance | null>(null);
   const [operationLeads, setOperationLeads] = useState<LeadRecord[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -489,7 +490,7 @@ function App() {
     notify("Lead created successfully");
   };
 
-  const loadLeadDetails = async (externalId: string) => {
+  const loadLeadDetails = async (externalId: string, mode: "share" | "transfer" = "share") => {
     if (!supabase || !membership) return;
     try {
       const record = await getLeadByExternalId(externalId);
@@ -498,6 +499,7 @@ function App() {
         listOrganizationSalespeople(membership.organization_id),
       ]);
       setSelectedLead(record);
+      setLeadDetailsMode(mode);
       setTimeline(events);
       setSalespeople(people);
     } catch (error) {
@@ -621,7 +623,7 @@ function App() {
           {view === "Sales Pipeline" && membership && <SalesPipelineView membership={membership} onNotify={notify} />}
           {view === "Customer 360" && membership && <Customer360View membership={membership} onNotify={notify} />}
           {view === "Overview" && <Overview leads={leads} totalLeadCount={totalLeadCount} performance={performance} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => navigateToPath("/org/leads")} />}
-          {view === "Leads" && <LeadsView leads={filteredLeads} totalCount={totalLeadCount} isLoading={isLoadingLeads} isSearchPending={query.trim() !== debouncedQuery} isLoadingMore={isLoadingMoreLeads} hasMore={Boolean(supabase) && operationLeads.length < totalLeadCount} onLoadMore={() => void loadMoreLeads()} query={query} onAdd={() => setShowLeadForm(true)} canImport={membership?.role === "company_owner" || membership?.role === "organization_admin"} onImport={() => setShowLeadImport(true)} onOpen={(externalId) => void loadLeadDetails(externalId)} onStatusChange={async (id, status) => { try { if (supabase) await updateLeadStatus(id, status.toLowerCase().replace("-", "_") as LeadStatus); setLeads((all) => all.map((lead) => lead.id === id ? { ...lead, status } : lead)); notify("Lead status updated"); } catch (error) { notify(error instanceof Error ? error.message : "Could not update lead"); } }} />}
+          {view === "Leads" && <LeadsView leads={filteredLeads} totalCount={totalLeadCount} isLoading={isLoadingLeads} isSearchPending={query.trim() !== debouncedQuery} isLoadingMore={isLoadingMoreLeads} hasMore={Boolean(supabase) && operationLeads.length < totalLeadCount} onLoadMore={() => void loadMoreLeads()} query={query} onAdd={() => setShowLeadForm(true)} canImport={membership?.role === "company_owner" || membership?.role === "organization_admin"} onImport={() => setShowLeadImport(true)} onOpen={(externalId) => void loadLeadDetails(externalId)} onTransfer={(externalId) => void loadLeadDetails(externalId, "transfer")} onStatusChange={async (id, status) => { try { if (supabase) await updateLeadStatus(id, status.toLowerCase().replace("-", "_") as LeadStatus); setLeads((all) => all.map((lead) => lead.id === id ? { ...lead, status } : lead)); notify("Lead status updated"); } catch (error) { notify(error instanceof Error ? error.message : "Could not update lead"); } }} />}
           {view === "Campaigns" && (isSupabaseConfigured ? <ModulePending eyebrow="CAMPAIGN MANAGEMENT" title="Campaigns" description="Campaign records will appear here after the campaign repository is connected." icon={<Target size={24} />} /> : <Campaigns onNotify={notify} />)}
           {view === "Follow-ups" && (membership ? <FollowUpsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FOLLOW-UP QUEUE" title="Follow-ups" description="An authenticated organization membership is required." icon={<ClipboardList size={24} />} />)}
           {view === "Calling" && <CallingWorkspace leads={filteredLeads} membership={membership} hasMore={Boolean(supabase) && operationLeads.length < totalLeadCount} isLoadingMore={isLoadingMoreLeads} onLoadMore={loadMoreLeads} onNotify={notify} />}
@@ -643,7 +645,7 @@ function App() {
         if (result.imported) setLeadImportRefresh((current) => current + 1);
         notify(`${result.imported} leads imported; ${result.duplicates} existing duplicates and ${result.invalidRows} invalid rows skipped.${result.error ? ` ${result.error}` : ""}`);
       }} onNotify={notify} />}
-      {selectedLead && <LeadDetails lead={selectedLead} events={timeline} salespeople={salespeople} onClose={() => setSelectedLead(null)} onNotify={notify} onRefresh={async () => setTimeline(await listLeadTimeline(selectedLead.id))} />}
+      {selectedLead && <LeadDetails lead={selectedLead} events={timeline} salespeople={salespeople} initialMode={leadDetailsMode} onClose={() => setSelectedLead(null)} onNotify={notify} onRefresh={async () => setTimeline(await listLeadTimeline(selectedLead.id))} />}
       {toast && <div className="toast"><Check size={17} />{toast}</div>}
     </div>
   )}</DashboardLayout></ProtectedRoute>;
@@ -816,17 +818,17 @@ function Overview({ leads, totalLeadCount, performance, onAdd, onViewLeads, user
   return <><PageHeader eyebrow="LIVE WORKSPACE" title={`Good morning, ${userName || "there"}`} description="Here’s what’s happening with your sales pipeline today." action={<div className="page-actions"><button className="button secondary" onClick={exportCsv}>Export loaded leads</button><button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} />{performance && <section className="card personal-performance"><div className="card-header"><div><h2>My performance</h2><p>Authorized records for your salesperson account</p></div><span className="pending-pill">Live data</span></div><div className="performance-grid">{[["Assigned leads", performance.assignedLeads], ["Calls made", performance.calls], ["Follow-ups due", performance.followUpsDue], ["Visits completed", performance.visitsCompleted], ["Bookings", performance.bookings], ["Lost leads", performance.lostLeads]].map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div></section>}<div className="stats-grid">{stats.map(({ label, value, change, Icon, note }) => <div className="stat-card" key={label}><div className="stat-top"><span>{label}</span><div className="stat-icon"><Icon size={17} /></div></div><strong>{value}</strong><div className="stat-foot"><span className="neutral">{change}</span><small>{note}</small></div></div>)}</div><div className="dashboard-grid"><section className="card pipeline-card"><div className="card-header"><div><h2>Pipeline overview</h2><p>Stage mix among the latest {leads.length} loaded leads</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><div className="funnel">{pipeline.map(([stage, stageCount, color]) => { const percent = leads.length ? Math.round((stageCount / leads.length) * 100) : 0; return <div className="funnel-row" key={stage}><span className="funnel-label">{stage}</span><div className="funnel-track"><div className={`funnel-bar ${color}`} style={{ width: `${percent}%` }} /></div><strong>{stageCount}</strong><small>{percent}%</small></div>; })}</div></section><section className="card activity-card"><div className="card-header"><div><h2>Recent leads</h2><p>Latest authorized records</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><div className="activity-list">{leads.slice(0, 4).map((lead) => <div className="activity-item" key={lead.id}><div className="activity-avatar green">{lead.name.split(" ").map((part) => part[0]).join("")}</div><div><p><strong>{lead.name}</strong> entered as {lead.status}</p><small>{lead.date}</small></div></div>)}</div></section></div><section className="card table-card"><div className="card-header"><div><h2>Recent leads</h2><p>Leads that need your attention</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><LeadTable leads={leads.slice(0, 4)} compact /></section></>;
 }
 
-function LeadsView({ leads, totalCount, isLoading, isSearchPending, isLoadingMore, hasMore, onLoadMore, query, onAdd, canImport, onImport, onOpen, onStatusChange }: { leads: Lead[]; totalCount: number; isLoading: boolean; isSearchPending: boolean; isLoadingMore: boolean; hasMore: boolean; onLoadMore: () => void; query: string; onAdd: () => void; canImport: boolean; onImport: () => void; onOpen: (id: string) => void; onStatusChange: (id: string, status: Status) => void }) {
+function LeadsView({ leads, totalCount, isLoading, isSearchPending, isLoadingMore, hasMore, onLoadMore, query, onAdd, canImport, onImport, onOpen, onTransfer, onStatusChange }: { leads: Lead[]; totalCount: number; isLoading: boolean; isSearchPending: boolean; isLoadingMore: boolean; hasMore: boolean; onLoadMore: () => void; query: string; onAdd: () => void; canImport: boolean; onImport: () => void; onOpen: (id: string) => void; onTransfer: (id: string) => void; onStatusChange: (id: string, status: Status) => void }) {
   const isRefreshing = isLoading || isSearchPending;
-  return <><PageHeader eyebrow="LEAD MANAGEMENT" title="Leads" description={isRefreshing && leads.length ? "Updating results; the previous result set remains visible." : `Showing ${leads.length} of ${totalCount} matching authorized leads.`} action={<div className="page-actions">{canImport && <button className="button secondary" onClick={onImport}><Upload size={16} /> Import CSV</button>}<button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} /><div className="toolbar"><div className="filter-search"><Search size={17} /><input placeholder="Search leads..." value={query} readOnly /></div><button className="button secondary"><Filter size={16} /> Filters <span className="filter-count">2</span></button><button className="button secondary"><CalendarDays size={16} /> Date added <ChevronDown size={15} /></button></div><section className="card table-card">{isLoading && !leads.length ? <div className="route-loading" role="status">Loading leads…</div> : <LeadTable leads={leads} onOpen={onOpen} onStatusChange={onStatusChange} />}{hasMore && <div className="lead-pagination"><button className="button secondary" disabled={isLoadingMore} onClick={onLoadMore}>{isLoadingMore ? "Loading…" : `Load more (${totalCount - leads.length} remaining)`}</button></div>}</section></>;
+  return <><PageHeader eyebrow="LEAD MANAGEMENT" title="Leads" description={isRefreshing && leads.length ? "Updating results; the previous result set remains visible." : `Showing ${leads.length} of ${totalCount} matching authorized leads.`} action={<div className="page-actions">{canImport && <button className="button secondary" onClick={onImport}><Upload size={16} /> Import CSV</button>}<button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} /><div className="toolbar"><div className="filter-search"><Search size={17} /><input placeholder="Search leads..." value={query} readOnly /></div><button className="button secondary"><Filter size={16} /> Filters <span className="filter-count">2</span></button><button className="button secondary"><CalendarDays size={16} /> Date added <ChevronDown size={15} /></button></div><section className="card table-card">{isLoading && !leads.length ? <div className="route-loading" role="status">Loading leads…</div> : <LeadTable leads={leads} onOpen={onOpen} onTransfer={onTransfer} onStatusChange={onStatusChange} />}{hasMore && <div className="lead-pagination"><button className="button secondary" disabled={isLoadingMore} onClick={onLoadMore}>{isLoadingMore ? "Loading…" : `Load more (${totalCount - leads.length} remaining)`}</button></div>}</section></>;
 }
 
-function LeadTable({ leads, compact = false, onOpen, onStatusChange }: { leads: Lead[]; compact?: boolean; onOpen?: (id: string) => void; onStatusChange?: (id: string, status: Status) => void }) {
-  return <div className="table-scroll"><table><thead><tr><th>LEAD</th><th>SOURCE</th><th>STATUS</th><th>LEAD SCORE</th><th>OWNER</th><th>ADDED</th><th /></tr></thead><tbody>{leads.map((lead) => <tr key={lead.id}><td><button className="lead-cell lead-link" onClick={() => onOpen?.(lead.id)}><div className="lead-avatar" style={{ background: lead.color }}>{lead.name.split(" ").map((n) => n[0]).join("")}</div><div><strong>{lead.name}</strong><small>{lead.company} · {lead.id}</small></div></button></td><td>{lead.source}</td><td>{onStatusChange ? <select className={`status-select ${lead.status.toLowerCase().replace("-", "")}`} value={lead.status} onChange={(e) => onStatusChange(lead.id, e.target.value as Status)}>{(["New", "Contacted", "Qualified", "Follow-up", "Won"] as Status[]).map((status) => <option key={status}>{status}</option>)}</select> : <span className={`status ${lead.status.toLowerCase().replace("-", "")}`}>{lead.status}</span>}</td><td><div className="score"><span className="score-bar"><i style={{ width: `${lead.score}%` }} /></span><strong>{lead.score}</strong></div></td><td><span className="owner">{lead.owner}</span></td><td className="date-cell">{lead.date}</td><td><button className="icon-button" onClick={() => onOpen?.(lead.id)}><MoreHorizontal size={17} /></button></td></tr>)}</tbody></table>{!leads.length && <div className="empty-state"><Search size={24} /><strong>No leads found</strong><p>Try a different search term.</p></div>}{compact && <div className="table-foot">Showing {leads.length} lead{leads.length === 1 ? "" : "s"}</div>}</div>;
+function LeadTable({ leads, compact = false, onOpen, onTransfer, onStatusChange }: { leads: Lead[]; compact?: boolean; onOpen?: (id: string) => void; onTransfer?: (id: string) => void; onStatusChange?: (id: string, status: Status) => void }) {
+  return <div className="table-scroll"><table><thead><tr><th>LEAD</th><th>SOURCE</th><th>STATUS</th><th>LEAD SCORE</th><th>OWNER</th><th>ADDED</th><th /></tr></thead><tbody>{leads.map((lead) => <tr key={lead.id}><td><button className="lead-cell lead-link" onClick={() => onOpen?.(lead.id)}><div className="lead-avatar" style={{ background: lead.color }}>{lead.name.split(" ").map((n) => n[0]).join("")}</div><div><strong>{lead.name}</strong><small>{lead.company} · {lead.id}</small></div></button></td><td>{lead.source}</td><td>{onStatusChange ? <select className={`status-select ${lead.status.toLowerCase().replace("-", "")}`} value={lead.status} onChange={(e) => onStatusChange(lead.id, e.target.value as Status)}>{(["New", "Contacted", "Qualified", "Follow-up", "Won"] as Status[]).map((status) => <option key={status}>{status}</option>)}</select> : <span className={`status ${lead.status.toLowerCase().replace("-", "")}`}>{lead.status}</span>}</td><td><div className="score"><span className="score-bar"><i style={{ width: `${lead.score}%` }} /></span><strong>{lead.score}</strong></div></td><td><span className="owner">{lead.owner}</span></td><td className="date-cell">{lead.date}</td><td><div className="page-actions">{onTransfer && <button className="button secondary" onClick={() => onTransfer(lead.id)}>Transfer</button>}<button className="icon-button" onClick={() => onOpen?.(lead.id)}><MoreHorizontal size={17} /></button></div></td></tr>)}</tbody></table>{!leads.length && <div className="empty-state"><Search size={24} /><strong>No leads found</strong><p>Try a different search term.</p></div>}{compact && <div className="table-foot">Showing {leads.length} lead{leads.length === 1 ? "" : "s"}</div>}</div>;
 }
 
-function LeadDetails({ lead, events, salespeople, onClose, onNotify, onRefresh }: { lead: LeadRecord; events: LeadEvent[]; salespeople: Array<{ user_id: string; role: string; profiles: { full_name: string } | null }>; onClose: () => void; onNotify: (message: string) => void; onRefresh: () => Promise<void> }) {
-  const [mode, setMode] = useState<"share" | "transfer">("share");
+function LeadDetails({ lead, events, salespeople, initialMode = "share", onClose, onNotify, onRefresh }: { lead: LeadRecord; events: LeadEvent[]; salespeople: Array<{ user_id: string; role: string; profiles: { full_name: string } | null }>; initialMode?: "share" | "transfer"; onClose: () => void; onNotify: (message: string) => void; onRefresh: () => Promise<void> }) {
+  const [mode, setMode] = useState<"share" | "transfer">(initialMode);
   const [userId, setUserId] = useState("");
   const [reason, setReason] = useState("");
   const [expiry, setExpiry] = useState("");
@@ -982,6 +984,31 @@ function CompanyView({ membership, summary, onNotify }: { membership: Membership
 function TeamsView({ membership, teams, onCreated, onNotify }: { membership: Membership; teams: Team[]; onCreated: (team: Team) => void; onNotify: (message: string) => void }) {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [members, setMembers] = useState<Array<{ user_id: string; role: string; is_active: boolean; profiles: { full_name: string } | null }>>([]);
+  const [teamMembers, setTeamMembers] = useState<Record<string, string[]>>({});
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const organizationMembers = await listOrganizationMembers(membership.organization_id);
+        if (!active) return;
+        setMembers(organizationMembers.map((member) => ({
+          user_id: member.user_id,
+          role: member.role,
+          is_active: member.is_active,
+          profiles: member.profiles,
+        })));
+        const assignments = await Promise.all(teams.map(async (team) => [
+          team.id,
+          await listTeamMembers(team.id, membership.organization_id),
+        ] as const));
+        if (active) setTeamMembers(Object.fromEntries(assignments));
+      } catch (error) {
+        if (active) onNotify(error instanceof Error ? error.message : "Team members could not be loaded.");
+      }
+    })();
+    return () => { active = false; };
+  }, [membership.organization_id, teams, onNotify]);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!name.trim()) return;
@@ -990,7 +1017,62 @@ function TeamsView({ membership, teams, onCreated, onNotify }: { membership: Mem
     catch (error) { onNotify(error instanceof Error ? error.message : "Could not create team"); }
     finally { setBusy(false); }
   };
-  return <><PageHeader eyebrow="TEAM MANAGEMENT" title="Sales teams" description="Create teams inside your organization and assign managers through authorized operations." /><div className="owner-grid"><section className="card"><div className="card-header"><div><h2>Create a sales team</h2><p>Teams are organization-scoped.</p></div><UsersRound className="green-icon" size={19} /></div><form className="invite-form" onSubmit={submit}><label>Team name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="North region sales" /></label><button className="button primary" disabled={busy}>{busy ? "Creating..." : "Create team"}</button></form></section><section className="card"><div className="card-header"><div><h2>Your teams</h2><p>{teams.length} active teams</p></div></div><div className="team-list">{teams.length ? teams.map((team) => <div className="settings-row" key={team.id}><div className="workspace-avatar"><UsersRound size={15} /></div><div><strong>{team.name}</strong><small>{team.manager_id ? "Manager assigned" : "Manager not assigned"}</small></div><span className="status pending">{team.is_active ? "Active" : "Inactive"}</span></div>) : <div className="empty-state"><UsersRound size={23} /><strong>No teams yet</strong><p>Create the first organization team.</p></div>}</div></section></div></>;
+  return <>
+    <PageHeader eyebrow="TEAM MANAGEMENT" title="Sales teams" description="Create teams, add organization members, and assign managers through authorized operations." />
+    <div className="owner-grid">
+      <section className="card">
+        <div className="card-header"><div><h2>Create a sales team</h2><p>Teams are organization-scoped.</p></div><UsersRound className="green-icon" size={19} /></div>
+        <form className="invite-form" onSubmit={submit}>
+          <label>Team name<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="North region sales" /></label>
+          <button className="button primary" disabled={busy}>{busy ? "Creating..." : "Create team"}</button>
+        </form>
+      </section>
+      <section className="card">
+        <div className="card-header"><div><h2>Your teams</h2><p>{teams.length} active teams</p></div></div>
+        <div className="team-list">
+          {teams.length ? teams.map((team) => <div className="settings-row" key={team.id}>
+            <div className="workspace-avatar"><UsersRound size={15} /></div>
+            <div>
+              <strong>{team.name}</strong>
+              <small>{team.manager_id ? "Manager assigned" : "Manager not assigned"}</small>
+              <div className="team-member-actions">
+                {(teamMembers[team.id] ?? []).map((userId) => {
+                  const member = members.find((item) => item.user_id === userId);
+                  return member ? <button type="button" className="status pending" key={userId} title="Remove from team" onClick={async () => {
+                    try {
+                      await setTeamMember(team.id, membership.organization_id, userId, false);
+                      setTeamMembers((current) => ({ ...current, [team.id]: (current[team.id] ?? []).filter((id) => id !== userId) }));
+                      onNotify("Team member removed");
+                    } catch (error) {
+                      onNotify(error instanceof Error ? error.message : "Team member could not be removed");
+                    }
+                  }}>{member.profiles?.full_name || userId.slice(0, 8)} ×</button> : null;
+                })}
+              </div>
+              <select aria-label={`Add member to ${team.name}`} defaultValue="" onChange={async (event) => {
+                const userId = event.target.value;
+                if (!userId) return;
+                try {
+                  await setTeamMember(team.id, membership.organization_id, userId, true);
+                  setTeamMembers((current) => ({ ...current, [team.id]: [...new Set([...(current[team.id] ?? []), userId])] }));
+                  event.target.value = "";
+                  onNotify("Team member added");
+                } catch (error) {
+                  onNotify(error instanceof Error ? error.message : "Team member could not be added");
+                }
+              }}>
+                <option value="">Add team member</option>
+                {members.filter((member) => member.role !== "super_admin" && member.is_active && !(teamMembers[team.id] ?? []).includes(member.user_id)).map((member) =>
+                  <option key={member.user_id} value={member.user_id}>{member.profiles?.full_name || member.user_id.slice(0, 8)}</option>
+                )}
+              </select>
+            </div>
+            <span className="status pending">{team.is_active ? "Active" : "Inactive"}</span>
+          </div>) : <div className="empty-state"><UsersRound size={23} /><strong>No teams yet</strong><p>Create the first organization team.</p></div>}
+        </div>
+      </section>
+    </div>
+  </>;
 }
 
 export default App;
