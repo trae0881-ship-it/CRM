@@ -29,13 +29,15 @@ For OAuth apps used outside their test users, Google may require consent-screen 
 ## Import leads from a sheet
 
 1. Connect the Google account that can access the spreadsheets.
-2. Set an agency name, then add an agency sheet. Paste its Google Sheets link and enter the worksheet tab name.
+2. Connect one Google account, then use the agency tabs to filter sources. Add an agency from the Integrations page, paste its Google Sheets link, and enter the worksheet tab name.
 3. Use **Preview tab** to check the selected tab's columns. Select which extra fields to show on leads, then choose **Import leads**.
-4. Use **Add another tab** to register another tab from the same spreadsheet. Use **Add agency sheet** for a different agency spreadsheet; each source has its own link, tab, mapping, and sync history.
+4. Use **Add another tab** to register another tab from the same spreadsheet. Use **Add agency spreadsheet** for a different agency spreadsheet; each source has its own link, tab, mapping, and sync history.
 5. Common contact headers such as `full_name`, `phone_number`, and `email` map to CRM fields. Other source columns are preserved on the lead; agency attribution is recorded for individual agency reports.
 6. In Reports, choose an agency and date range to view or export an individual report as CSV, XLSX, or PDF. If the agency name changes, run the source sync again to refresh the report association.
 
 The sheet must be accessible to the authorized Google account. Import results and row errors are shown in the integration panel; a successful OAuth connection alone does not import data.
+
+Use **Disconnect account** to revoke Google authorization and disable every agency sheet linked to that Google account in the organization. Reconnect the account before syncing those sheets again.
 
 ## Troubleshooting: "Failed to send a request to the Edge Function"
 

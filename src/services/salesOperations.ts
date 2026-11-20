@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { buildLeadSearchFilter } from "../lib/leadSearch.mjs";
 import type { LeadRecord } from "../types/database";
 
 const client = () => {
@@ -9,7 +10,7 @@ const client = () => {
 export type PipelineStageRecord = { id: string; pipeline_id: string; name: string; position: number; category: "open" | "won" | "lost"; requires_reason: boolean };
 
 export async function listPipelineStages(organizationId: string) {
-  const { data, error } = await client().from("pipeline_stages").select("id,pipeline_id,name,position,category,requires_reason,sales_pipelines!inner(organization_id)").eq("sales_pipelines.organization_id", organizationId).order("position");
+  const { data, error } = await client().from("pipeline_stages").select("id,pipeline_id,name,position,category,requires_reason,sales_pipelines!inner(organization_id,is_default)").eq("sales_pipelines.organization_id", organizationId).eq("sales_pipelines.is_default", true).order("position");
   if (error) throw error;
   return (data ?? []) as PipelineStageRecord[];
 }
@@ -36,7 +37,7 @@ export async function moveLeadToPipelineStage(input: {
 
 export async function listCustomerLeads(organizationId: string, search = "") {
   let query = client().from("leads").select("*").eq("organization_id", organizationId).is("deleted_at", null).order("created_at", { ascending: false });
-  if (search.trim()) query = query.or(`full_name.ilike.%${search.trim()}%,email.ilike.%${search.trim()}%,phone.ilike.%${search.trim()}%`);
+  if (search.trim()) query = query.or(buildLeadSearchFilter(search));
   const { data, error } = await query;
   if (error) throw error;
   return (data ?? []) as LeadRecord[];

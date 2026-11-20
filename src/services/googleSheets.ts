@@ -100,6 +100,9 @@ export async function listGoogleSyncRuns(organizationId: string) {
   return data ?? [];
 }
 
-export async function disconnectGoogleSheet(id: string) {
-  return invokeGoogleFunction<unknown>("google-sheets-oauth", { action: "disconnect", integrationId: id });
+export async function disconnectGoogleAccount(integrationId: string) {
+  return invokeGoogleFunction<{ disconnected: boolean; integrationCount: number }>("google-sheets-oauth", {
+    action: "disconnect-account",
+    integrationId,
+  });
 }

@@ -119,13 +119,57 @@ Deno.serve(async (request) => {
       if (createError) return json({ error: "A new sheet connection could not be created" }, 500);
       return json({ integrationId: created.id });
     }
-    if (body?.action === "disconnect" && body.integrationId) {
-      const { data: integration } = await admin.from("google_sheet_integrations").select("organization_id,token_ciphertext").eq("id", body.integrationId).single();
-      if (!integration) return json({ error: "Integration not found" }, 404);
+    if (body?.action === "disconnect-account" && body.integrationId) {
+      const { data: integration, error: integrationError } = await admin.from("google_sheet_integrations")
+        .select("organization_id,provider_account_email,token_ciphertext")
+        .eq("id", body.integrationId)
+        .single();
+      if (integrationError || !integration) return json({ error: "Integration not found" }, 404);
       const { data: membership } = await admin.from("organization_members").select("role").eq("organization_id", integration.organization_id).eq("user_id", user.id).eq("is_active", true).single();
       if (!membership || !["company_owner", "organization_admin"].includes(membership.role)) return json({ error: "Google Sheets administration permission required" }, 403);
-      await admin.from("google_sheet_integrations").update({ status: "disconnected", token_ciphertext: null, disconnected_at: new Date().toISOString(), auto_sync: false }).eq("id", body.integrationId);
-      return json({ disconnected: true });
+      let relatedIntegrations = [{ id: body.integrationId }];
+      if (integration.provider_account_email) {
+        const { data, error } = await admin.from("google_sheet_integrations").select("id")
+          .eq("organization_id", integration.organization_id)
+          .eq("provider_account_email", integration.provider_account_email);
+        if (error) return json({ error: "Linked agency sheets could not be identified" }, 500);
+        relatedIntegrations = data ?? relatedIntegrations;
+      } else if (integration.token_ciphertext) {
+        const { data, error } = await admin.from("google_sheet_integrations").select("id,token_ciphertext")
+          .eq("organization_id", integration.organization_id);
+        if (error) return json({ error: "Linked agency sheets could not be identified" }, 500);
+        relatedIntegrations = (data ?? []).filter((item) => item.token_ciphertext === integration.token_ciphertext).map(({ id }) => ({ id }));
+      }
+
+      if (integration.token_ciphertext) {
+        const tokens = await decryptToken(integration.token_ciphertext) as { refresh_token?: string; access_token?: string };
+        const tokenToRevoke = tokens.refresh_token || tokens.access_token;
+        if (tokenToRevoke) {
+          let response: Response;
+          try {
+            response = await fetch("https://oauth2.googleapis.com/revoke", {
+              method: "POST",
+              headers: { "content-type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams({ token: tokenToRevoke }),
+            });
+          } catch {
+            return json({ error: "Google could not be reached to revoke access. The account is still connected; retry the disconnect." }, 502);
+          }
+          if (!response.ok && response.status !== 400) {
+            return json({ error: `Google access revocation failed (HTTP ${response.status}). The account is still connected.` }, 502);
+          }
+        }
+      }
+
+      const integrationIds = relatedIntegrations.map(({ id }) => id);
+      const { error: disconnectError } = await admin.from("google_sheet_integrations").update({
+        status: "disconnected",
+        token_ciphertext: null,
+        disconnected_at: new Date().toISOString(),
+        auto_sync: false,
+      }).in("id", integrationIds);
+      if (disconnectError) return json({ error: "Google account was revoked but its agency sheets could not be disabled. Contact your administrator." }, 500);
+      return json({ disconnected: true, integrationCount: integrationIds.length });
     }
     if (body?.action === "list-spreadsheets" && body.integrationId) {
       const { data: integration } = await admin.from("google_sheet_integrations").select("organization_id,token_ciphertext").eq("id", body.integrationId).single();

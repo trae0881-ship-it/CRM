@@ -90,7 +90,7 @@ test("Google Sheets preview exposes worksheet columns for organization-selected 
   assert.match(view, /Choose lead detail columns/);
   assert.match(view, /Import leads/);
   assert.match(view, /Add another tab/);
-  assert.match(view, /Add agency sheet/);
+  assert.match(view, /Add agency spreadsheet/);
   assert.match(view, /agency_name/);
   assert.match(view, /const result = await previewGoogleSheet\(integration\.id\)/);
   assert.match(service, /action: "preview"/);
@@ -176,4 +176,20 @@ test("Google Sheets connection reports Edge Function reachability failures with 
   assert.match(service, /Enabling Google under Supabase Auth providers does not deploy this function/);
   assert.match(docs, /Failed to send a request to the Edge Function/);
   assert.match(docs, /Deploy the current function source/i);
+});
+
+test("agency tabs can disconnect and revoke every sheet using a Google account", async () => {
+  const view = await readFile(new URL("../src/components/GoogleSheetsView.tsx", import.meta.url), "utf8");
+  const service = await readFile(new URL("../src/services/googleSheets.ts", import.meta.url), "utf8");
+  const oauth = await readFile(new URL("../supabase/functions/google-sheets-oauth/index.ts", import.meta.url), "utf8");
+  assert.match(view, /aria-label="Filter integrations by agency"/);
+  assert.match(view, /aria-pressed=\{selectedAgency === key\}/);
+  assert.match(view, /Add agency spreadsheet/);
+  assert.match(view, /Disconnect account/);
+  assert.match(service, /action: "disconnect-account"/);
+  assert.match(oauth, /body\?\.action === "disconnect-account"/);
+  assert.match(oauth, /oauth2\.googleapis\.com\/revoke/);
+  assert.match(oauth, /eq\("provider_account_email", integration\.provider_account_email\)/);
+  assert.match(oauth, /status: "disconnected"/);
+  assert.match(oauth, /if \(disconnectError\)/);
 });

@@ -4,7 +4,7 @@ import type { Membership } from "../services/workspace";
 import { isOrganizationId } from "../lib/organizationId";
 import {
   addGoogleSheetIntegration,
-  disconnectGoogleSheet,
+  disconnectGoogleAccount,
   listGoogleSheetIntegrations,
   listGoogleSyncRuns,
   previewGoogleSheet,
@@ -39,6 +39,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
   const [runs, setRuns] = useState<Array<Record<string, unknown>>>([]);
   const [newAgencyName, setNewAgencyName] = useState("");
   const [templateIntegrationId, setTemplateIntegrationId] = useState("");
+  const [selectedAgency, setSelectedAgency] = useState("all");
   const [busy, setBusy] = useState(false);
   const popupRef = useRef<Window | null>(null);
   const validOrganizationId = isOrganizationId(membership.organization_id);
@@ -59,6 +60,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
       setTemplateIntegrationId((current) => loadedIntegrations.some((item) => item.id === current && item.status !== "disconnected")
         ? current
         : loadedIntegrations.find((item) => item.status !== "disconnected")?.id ?? "");
+      setSelectedAgency((current) => current === "all" || loadedIntegrations.some((item) => (item.agency_name?.trim() || "Unassigned").toLocaleLowerCase() === current) ? current : "all");
     } catch (error) {
       onNotify(googleSheetsErrorMessage(error, "Google Sheets data could not be loaded."));
     }
@@ -111,6 +113,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
     try {
       await addGoogleSheetIntegration(templateIntegrationId, agencyName);
       setNewAgencyName("");
+      if (agencyName) setSelectedAgency(agencyName.trim().toLocaleLowerCase());
       await load();
       onNotify(agencyName ? `Sheet setup added for ${agencyName}.` : "Another tab setup added.");
     } catch (error) {
@@ -118,58 +121,92 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
     } finally { setBusy(false); }
   };
 
+  const disconnectAccount = async (integrationId: string) => {
+    setBusy(true);
+    try {
+      await disconnectGoogleAccount(integrationId);
+      await load();
+      onNotify("Google account disconnected. Its linked agency sheets are now paused.");
+    } catch (error) {
+      onNotify(googleSheetsErrorMessage(error, "Google account disconnect failed."));
+    } finally { setBusy(false); }
+  };
+
   const getIntegrationLabel = (integrationId: unknown) => {
     const integration = integrations.find((item) => item.id === integrationId);
     return [integration?.agency_name, integration?.worksheet_name].filter(Boolean).join(" · ") || "Google Sheet";
   };
+  const agencies = Array.from(integrations.reduce((items, integration) => {
+    const name = integration.agency_name?.trim() || "Unassigned";
+    const key = name.toLocaleLowerCase();
+    const current = items.get(key);
+    items.set(key, { name, count: (current?.count ?? 0) + 1 });
+    return items;
+  }, new Map<string, { name: string; count: number }>()).entries());
+  const visibleIntegrations = selectedAgency === "all"
+    ? integrations
+    : integrations.filter((integration) => (integration.agency_name?.trim() || "Unassigned").toLocaleLowerCase() === selectedAgency);
+  const accounts = Array.from(visibleIntegrations.reduce((items, integration) => {
+    const email = integration.provider_account_email?.trim() || "";
+    const key = email ? email.toLocaleLowerCase() : `integration:${integration.id}`;
+    const current = items.get(key);
+    items.set(key, { email, integrations: [...(current?.integrations ?? []), integration] });
+    return items;
+  }, new Map<string, { email: string; integrations: GoogleSheetIntegration[] }>()).values());
 
   return <section className="card google-sheets-card">
     <div className="card-header">
       <div>
         <p className="eyebrow">GOOGLE SHEETS</p>
         <h2>Agency lead sheets</h2>
-        <p>Har agency ke liye spreadsheet add karein; ek spreadsheet ke har tab ko alag import source banayein.</p>
+        <p>Manage agency spreadsheets and their tabs from one place. Imported leads keep their agency attribution for reports.</p>
       </div>
       <button className="button primary" disabled={busy || !validOrganizationId || !canManage} onClick={() => void connect()}><Link2 size={16} /> {integrations.length ? "Connect another Google account" : "Connect Google account"}</button>
     </div>
     {!validOrganizationId && <p className="profile-error" role="alert">An active organization could not be verified. Reload or sign in again before connecting.</p>}
 
-    {integrations.some((item) => item.status !== "disconnected") && <div className="agency-sheet-add">
+    <div className="agency-sheet-add">
       <div>
-        <h3>Add an agency spreadsheet</h3>
-        <p className="muted">Same agency ke additional tabs ko bhi alag source ke roop me add kar sakte hain.</p>
+        <h3>Add an agency</h3>
+        <p className="muted">Each agency gets its own spreadsheet source. You can add more tabs inside it.</p>
       </div>
       <div className="inline-form">
-        <label>Google account<select value={templateIntegrationId} onChange={(event) => setTemplateIntegrationId(event.target.value)}>
+        <label>Google account<select value={templateIntegrationId} onChange={(event) => setTemplateIntegrationId(event.target.value)} disabled={!integrations.some((item) => item.status !== "disconnected")}>
           {integrations.filter((item) => item.status !== "disconnected").map((item) => <option key={item.id} value={item.id}>{item.provider_account_email || "Connected Google account"}</option>)}
         </select></label>
         <label>Agency name<input maxLength={120} value={newAgencyName} onChange={(event) => setNewAgencyName(event.target.value)} placeholder="e.g. North Star Realty" /></label>
-        <button className="button secondary" disabled={busy || !newAgencyName.trim() || !templateIntegrationId} onClick={() => void addSheet(newAgencyName.trim())}><Plus size={16} /> Add agency sheet</button>
+        <button className="button secondary" disabled={busy || !newAgencyName.trim() || !templateIntegrationId} onClick={() => void addSheet(newAgencyName.trim())}><Plus size={16} /> Add agency spreadsheet</button>
       </div>
-    </div>}
-
-    {!integrations.length && <div className="empty-state"><CheckCircle2 size={18} /><p>No Google account is connected.</p><p className="muted">Connect Google first. Then you can add multiple agency spreadsheets and tabs.</p></div>}
-
-    <div className="agency-sheet-list">
-      {integrations.map((integration) => <GoogleSheetSource
-        key={integration.id}
-        integration={integration}
-        busy={busy}
-        onNotify={onNotify}
-        onReload={load}
-        onAddTab={() => void addSheet(integration.agency_name ?? "")}
-        onDisconnect={async () => {
-          setBusy(true);
-          try {
-            await disconnectGoogleSheet(integration.id);
-            await load();
-            onNotify("Google account disconnected.");
-          } catch (error) {
-            onNotify(googleSheetsErrorMessage(error, "Disconnect failed."));
-          } finally { setBusy(false); }
-        }}
-      />)}
+      {!integrations.some((item) => item.status !== "disconnected") && <small className="agency-sheet-help">Connect a Google account first to add its agency spreadsheet.</small>}
     </div>
+
+    {!integrations.some((item) => item.status !== "disconnected") && <div className="empty-state"><CheckCircle2 size={18} /><p>No active Google account is connected.</p><p className="muted">Connect Google first. Then you can add multiple agency spreadsheets and tabs.</p></div>}
+
+    {integrations.length > 0 && <>
+      <nav className="agency-tabs" aria-label="Filter integrations by agency">
+        <button type="button" className={`agency-tab${selectedAgency === "all" ? " active" : ""}`} aria-pressed={selectedAgency === "all"} onClick={() => setSelectedAgency("all")}>All agencies <span>{integrations.length}</span></button>
+        {agencies.map(([key, agency]) => <button type="button" className={`agency-tab${selectedAgency === key ? " active" : ""}`} aria-pressed={selectedAgency === key} key={key} onClick={() => setSelectedAgency(key)}>{agency.name} <span>{agency.count}</span></button>)}
+      </nav>
+      <div className="agency-sheet-list">
+        {accounts.map(({ email, integrations: accountIntegrations }) => <section className="agency-account-group" key={email ? email.toLocaleLowerCase() : accountIntegrations[0].id}>
+          <div className="agency-account-heading">
+            <div><p className="eyebrow">CONNECTED GOOGLE ACCOUNT</p><strong>{email || "Google account"}</strong><small>{accountIntegrations.length} agency sheet{accountIntegrations.length === 1 ? "" : "s"} in this view</small></div>
+            <button className="button secondary" disabled={busy || !canManage || accountIntegrations.every((item) => item.status === "disconnected")} onClick={() => void disconnectAccount(accountIntegrations[0].id)}><Unplug size={16} /> Disconnect account</button>
+          </div>
+          <div className="agency-account-sheets">
+            {accountIntegrations.map((integration) => <GoogleSheetSource
+              key={integration.id}
+              integration={integration}
+              busy={busy}
+              onNotify={onNotify}
+              onReload={load}
+              onAddTab={() => void addSheet(integration.agency_name ?? "")}
+            />)}
+          </div>
+        </section>)}
+      </div>
+      {!visibleIntegrations.length && <div className="agency-tab-empty">No sheet sources are configured for this agency yet.</div>}
+    </>}
 
     {runs.length > 0 && <div className="table-card agency-sync-history">
       <h3>Sync history</h3>
@@ -180,13 +217,12 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
   </section>;
 }
 
-function GoogleSheetSource({ integration, busy, onNotify, onReload, onAddTab, onDisconnect }: {
+function GoogleSheetSource({ integration, busy, onNotify, onReload, onAddTab }: {
   integration: GoogleSheetIntegration;
   busy: boolean;
   onNotify: (message: string) => void;
   onReload: () => Promise<void>;
   onAddTab: () => void;
-  onDisconnect: () => void;
 }) {
   const isPending = integration.spreadsheet_id.startsWith("pending-selection");
   const [spreadsheetInput, setSpreadsheetInput] = useState(isPending ? "" : integration.spreadsheet_id);
@@ -278,6 +314,7 @@ function GoogleSheetSource({ integration, busy, onNotify, onReload, onAddTab, on
   };
 
   const disabled = busy || localBusy;
+  const disconnected = integration.status === "disconnected";
   return <article className="agency-sheet-card">
     <div className="agency-sheet-heading">
       <div><p className="eyebrow">AGENCY SOURCE</p><h3>{agencyName || "Name this agency"}</h3><span>{integration.provider_account_email || "Google account"} · {integration.status}</span></div>
@@ -288,14 +325,13 @@ function GoogleSheetSource({ integration, busy, onNotify, onReload, onAddTab, on
       <label>Agency name<input required maxLength={120} value={agencyName} onChange={(event) => setAgencyName(event.target.value)} placeholder="e.g. North Star Realty" /></label>
       <label>Spreadsheet link<input value={spreadsheetInput} onChange={(event) => setSpreadsheetInput(event.target.value)} placeholder="Paste Google Sheets link" /></label>
       <label>Tab name<input value={worksheetName} onChange={(event) => setWorksheetName(event.target.value)} placeholder="e.g. Leads - November" /></label>
-      <label>Automatic sync<select value={integration.auto_sync ? "on" : "off"} onChange={(event) => void updateGoogleSheetSettings(integration.id, { auto_sync: event.target.value === "on" }).then(onReload).catch((error) => onNotify(googleSheetsErrorMessage(error, "Automatic sync setting could not be saved.")))}><option value="off">Off</option><option value="on">On</option></select></label>
+      <label>Automatic sync<select disabled={disconnected} value={integration.auto_sync ? "on" : "off"} onChange={(event) => void updateGoogleSheetSettings(integration.id, { auto_sync: event.target.value === "on" }).then(onReload).catch((error) => onNotify(googleSheetsErrorMessage(error, "Automatic sync setting could not be saved.")))}><option value="off">Off</option><option value="on">On</option></select></label>
     </div>
     <div className="agency-sheet-actions">
       <button className="button secondary" disabled={disabled} onClick={() => void save()}>Save setup</button>
-      <button className="button secondary" disabled={disabled || !spreadsheetInput.trim()} onClick={() => void preview()}><RefreshCw size={16} /> Preview tab</button>
-      <button className="button primary" disabled={disabled || !availableColumns.length || !selectedColumns.length} onClick={() => void importRows()}><RefreshCw size={16} /> Import leads</button>
-      <button className="button secondary" disabled={disabled} onClick={onAddTab}><Plus size={16} /> Add another tab</button>
-      <button className="button secondary" disabled={disabled} onClick={onDisconnect}><Unplug size={16} /> Disconnect</button>
+      <button className="button secondary" disabled={disabled || disconnected || !spreadsheetInput.trim()} onClick={() => void preview()}><RefreshCw size={16} /> Preview tab</button>
+      <button className="button primary" disabled={disabled || disconnected || !availableColumns.length || !selectedColumns.length} onClick={() => void importRows()}><RefreshCw size={16} /> Import leads</button>
+      <button className="button secondary" disabled={disabled || disconnected} onClick={onAddTab}><Plus size={16} /> Add another tab</button>
     </div>
     {availableColumns.length > 0 && <fieldset className="sheet-column-picker">
       <legend>Choose lead detail columns ({selectedColumns.length} selected)</legend>

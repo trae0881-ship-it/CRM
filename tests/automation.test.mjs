@@ -25,3 +25,14 @@ test("workflow event execution is idempotent and migration is tenant-scoped", ()
   assert.match(migration, /public\.is_org_member\(organization_id\)/);
   assert.match(migration, /claim_automation_event/);
 });
+
+test("automation control center loads managers and offers clearly labeled sample demos", async () => {
+  const view = await readFile(new URL("../src/components/AutomationView.tsx", import.meta.url), "utf8");
+  assert.match(view, /includes\(membership\.role\).*void load\(\)/);
+  assert.match(view, /Try an automation demo/);
+  assert.match(view, /sample data only/);
+  assert.match(view, /chooseAssignment/);
+  assert.match(view, /calculateLeadScore/);
+  assert.match(view, /canExecuteWorkflow/);
+  assert.match(view, /live event execution is not enabled/);
+});
