@@ -6,6 +6,7 @@ import type { LeadCsvRecord } from "../lib/leadCsvImport";
 
 export type CreateLeadInput = Pick<LeadRecord, "full_name"> & Partial<Omit<LeadRecord, "id" | "organization_id" | "created_at" | "updated_at" | "external_id">>;
 export type LeadPage = { records: LeadRecord[]; totalCount: number | null };
+export type LeadTrendPoint = { activity_date: string; new_leads: number; cumulative_leads: number; status_counts: Record<string, number> };
 
 const requireClient = () => {
   if (!supabase) throw new Error("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
@@ -26,6 +27,28 @@ export async function listLeadsPage(
   const { data, count, error } = await pageQuery;
   if (error) throw error;
   return { records: (data ?? []) as LeadRecord[], totalCount: count ?? null };
+}
+
+export async function getOrganizationLeadTrend(organizationId: string, days = 30): Promise<LeadTrendPoint[]> {
+  const { data, error } = await requireClient().rpc("get_organization_lead_trend", {
+    target_organization: organizationId,
+    lookback_days: days,
+  });
+  if (error) throw error;
+  const rows = (data ?? []) as Array<{
+    activity_date: string;
+    new_leads: number | string;
+    cumulative_leads: number | string;
+    status_counts: Record<string, number | string> | null;
+  }>;
+  return rows.map((row) => ({
+    activity_date: String(row.activity_date),
+    new_leads: Number(row.new_leads),
+    cumulative_leads: Number(row.cumulative_leads),
+    status_counts: row.status_counts && typeof row.status_counts === "object"
+      ? Object.fromEntries(Object.entries(row.status_counts).map(([status, count]) => [status, Number(count)]))
+      : {},
+  }));
 }
 
 export async function createLead(input: CreateLeadInput): Promise<LeadRecord> {

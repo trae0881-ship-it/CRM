@@ -20,3 +20,21 @@ test("lead sharing migration protects tenant scope and duplicate active shares",
   assert.match(sql, /create or replace function public\.transfer_lead/i);
   assert.match(sql, /A transfer reason is required/i);
 });
+
+test("lead dashboard trend is tenant-scoped and all lead detail edits are recorded", async () => {
+  const sql = await readFile(new URL("../supabase/migrations/20261120164400_lead_growth_and_complete_timeline.sql", import.meta.url), "utf8");
+  const app = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const chart = await readFile(new URL("../src/components/LeadTrendChart.tsx", import.meta.url), "utf8");
+  assert.match(sql, /function public\.get_organization_lead_trend/i);
+  assert.match(sql, /public\.is_org_member\(target_organization\)/i);
+  assert.match(sql, /deleted_at is null/i);
+  assert.match(sql, /grant execute on function public\.get_organization_lead_trend/i);
+  assert.match(sql, /lead_details_updated/i);
+  assert.match(sql, /create trigger leads_capture_record_updates/i);
+  assert.match(sql, /using \(public\.is_org_member\(organization_id\)\)/i);
+  assert.match(app, /<LeadTrendChart points=\{trend\} loading=\{isLoadingTrend\}/);
+  assert.match(app, /Lead track record/);
+  assert.match(app, /\[\.\.\.events\]\.reverse\(\)/);
+  assert.match(chart, /Total leads over time/);
+  assert.match(chart, /role="img" aria-label=/);
+});

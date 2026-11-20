@@ -8,7 +8,8 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { isSupabaseConfigured, supabase, supabaseConfigError } from "./lib/supabase";
-import { createLead, getLeadByExternalId, listLeadTimeline, listOrganizationSalespeople, listLeadsPage, shareLead, transferLead, updateLeadStatus } from "./services/leads";
+import { createLead, getLeadByExternalId, getOrganizationLeadTrend, listLeadTimeline, listOrganizationSalespeople, listLeadsPage, shareLead, transferLead, updateLeadStatus } from "./services/leads";
+import type { LeadTrendPoint } from "./services/leads";
 import { saveCall, skipLead } from "./services/calling";
 import { personalWhatsAppUrl, recordWhatsAppOpened, renderWhatsAppTemplate } from "./services/whatsapp";
 import { requestPasswordReset, signIn, signOut, signUp, updatePassword } from "./services/auth";
@@ -20,6 +21,7 @@ import { DashboardLayout } from "./components/DashboardLayout";
 import { PublicLayout } from "./components/PublicLayout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { PublicRoute } from "./components/PublicRoute";
+import { LeadTrendChart } from "./components/LeadTrendChart";
 const BookingsView = lazy(() => import("./components/OperationsViews").then((module) => ({ default: module.BookingsView })));
 const FollowUpsView = lazy(() => import("./components/OperationsViews").then((module) => ({ default: module.FollowUpsView })));
 const NotificationsView = lazy(() => import("./components/OperationsViews").then((module) => ({ default: module.NotificationsView })));
@@ -121,6 +123,8 @@ function App() {
   const [salespeople, setSalespeople] = useState<Array<{ user_id: string; role: string; profiles: { full_name: string } | null }>>([]);
   const [leadDetailsMode, setLeadDetailsMode] = useState<"share" | "transfer">("share");
   const [performance, setPerformance] = useState<PersonalPerformance | null>(null);
+  const [leadTrend, setLeadTrend] = useState<LeadTrendPoint[]>([]);
+  const [isLoadingLeadTrend, setIsLoadingLeadTrend] = useState(false);
   const [operationLeads, setOperationLeads] = useState<LeadRecord[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [membershipLoaded, setMembershipLoaded] = useState(false);
@@ -226,6 +230,8 @@ function App() {
     setTimeline([]);
     setSalespeople([]);
     setPerformance(null);
+    setLeadTrend([]);
+    setIsLoadingLeadTrend(false);
     setOperationLeads([]);
     setUnreadNotifications(0);
     setLeads(isSupabaseConfigured ? [] : initialLeads);
@@ -361,6 +367,24 @@ function App() {
       .catch((error) => { if (active) notify(error instanceof Error ? error.message : "Performance data could not be loaded."); });
     return () => { active = false; };
   }, [membership?.organization_id, membership?.user_id, membership?.role, view]);
+
+  useEffect(() => {
+    if (!supabase || !session || !membership || membership.role === "super_admin" || view !== "Overview") {
+      setLeadTrend([]);
+      setIsLoadingLeadTrend(false);
+      return;
+    }
+    let active = true;
+    setIsLoadingLeadTrend(true);
+    void getOrganizationLeadTrend(membership.organization_id).then((points) => {
+      if (active) setLeadTrend(points);
+    }).catch((error) => {
+      if (active) notify(error instanceof Error ? error.message : "Lead growth data could not be loaded.");
+    }).finally(() => {
+      if (active) setIsLoadingLeadTrend(false);
+    });
+    return () => { active = false; };
+  }, [membership?.organization_id, membership?.role, session?.user.id, view]);
 
   useEffect(() => {
     if (!membership || view !== "Teams" || !["company_owner", "organization_admin", "manager"].includes(membership.role)) return;
@@ -622,7 +646,7 @@ function App() {
           {view === "Automation" && membership && <AutomationView membership={membership} onNotify={notify} />}
           {view === "Sales Pipeline" && membership && <SalesPipelineView membership={membership} onNotify={notify} />}
           {view === "Customer 360" && membership && <Customer360View membership={membership} onNotify={notify} />}
-          {view === "Overview" && <Overview leads={leads} totalLeadCount={totalLeadCount} performance={performance} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => navigateToPath("/org/leads")} />}
+          {view === "Overview" && <Overview leads={leads} totalLeadCount={totalLeadCount} trend={leadTrend} isLoadingTrend={isLoadingLeadTrend} performance={performance} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => navigateToPath("/org/leads")} onOpenLead={(id) => void loadLeadDetails(id)} />}
           {view === "Leads" && <LeadsView leads={filteredLeads} totalCount={totalLeadCount} isLoading={isLoadingLeads} isSearchPending={query.trim() !== debouncedQuery} isLoadingMore={isLoadingMoreLeads} hasMore={Boolean(supabase) && operationLeads.length < totalLeadCount} onLoadMore={() => void loadMoreLeads()} query={query} onAdd={() => setShowLeadForm(true)} canImport={membership?.role === "company_owner" || membership?.role === "organization_admin"} onImport={() => setShowLeadImport(true)} onOpen={(externalId) => void loadLeadDetails(externalId)} onTransfer={(externalId) => void loadLeadDetails(externalId, "transfer")} onStatusChange={async (id, status) => { try { if (supabase) await updateLeadStatus(id, status.toLowerCase().replace("-", "_") as LeadStatus); setLeads((all) => all.map((lead) => lead.id === id ? { ...lead, status } : lead)); notify("Lead status updated"); } catch (error) { notify(error instanceof Error ? error.message : "Could not update lead"); } }} />}
           {view === "Campaigns" && (isSupabaseConfigured ? <ModulePending eyebrow="CAMPAIGN MANAGEMENT" title="Campaigns" description="Campaign records will appear here after the campaign repository is connected." icon={<Target size={24} />} /> : <Campaigns onNotify={notify} />)}
           {view === "Follow-ups" && (membership ? <FollowUpsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FOLLOW-UP QUEUE" title="Follow-ups" description="An authenticated organization membership is required." icon={<ClipboardList size={24} />} />)}
@@ -804,18 +828,67 @@ function ResetPasswordScreen() {
   return <form className="modal auth-card" onSubmit={submit}><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">PASSWORD RESET</p><h1>Choose a new password</h1><p className="muted">Use a strong password for your secure workspace.</p><label>New password<input required minLength={8} type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{message && <p className="auth-message">{message}</p>}<button className="button primary auth-submit" disabled={busy}>{busy ? "Saving..." : "Update password"}</button><a className="text-button auth-toggle" href="/login">Back to sign in</a></form>;
 }
 
-function Overview({ leads, totalLeadCount, performance, onAdd, onViewLeads, userName }: { leads: Lead[]; totalLeadCount: number; performance: PersonalPerformance | null; onAdd: () => void; onViewLeads: () => void; userName: string }) {
-  const count = (status: Status) => leads.filter((lead) => lead.status === status).length;
-  const conversionRate = leads.length ? `${Math.round((count("Won") / leads.length) * 100)}%` : "0%";
-  const pipeline = [["New", count("New"), "purple"], ["Contacted", count("Contacted"), "blue"], ["Qualified", count("Qualified"), "green"], ["Follow-up", count("Follow-up"), "orange"], ["Won", count("Won"), "dark"]] as const;
-  const stats: Array<{ label: string; value: string | number; change: string; Icon: LucideIcon; note: string }> = [
-    { label: "Total leads", value: totalLeadCount, change: "Current", Icon: Users, note: "authorized records" },
-    { label: "Qualified leads", value: count("Qualified"), change: "Recent", Icon: TrendingUp, note: `latest ${leads.length} loaded leads` },
-    { label: "Follow-ups due", value: count("Follow-up"), change: "Recent", Icon: ClipboardList, note: `latest ${leads.length} loaded leads` },
-    { label: "Conversion rate", value: conversionRate, change: "Recent", Icon: Target, note: "among latest loaded leads" },
+function Overview({ leads, totalLeadCount, trend, isLoadingTrend, performance, onAdd, onViewLeads, onOpenLead, userName }: {
+  leads: Lead[];
+  totalLeadCount: number;
+  trend: LeadTrendPoint[];
+  isLoadingTrend: boolean;
+  performance: PersonalPerformance | null;
+  onAdd: () => void;
+  onViewLeads: () => void;
+  onOpenLead: (id: string) => void;
+  userName: string;
+}) {
+  const statuses = trend[0]?.status_counts ?? {};
+  const total = totalLeadCount || trend[trend.length - 1]?.cumulative_leads || 0;
+  const newThisWeek = trend.slice(-7).reduce((sum, point) => sum + point.new_leads, 0);
+  const qualified = statuses.qualified ?? 0;
+  const won = statuses.won ?? 0;
+  const stats: Array<{ label: string; value: string | number; icon: LucideIcon; tone: string; note: string }> = [
+    { label: "Total leads", value: total.toLocaleString(), icon: Users, tone: "purple", note: "All active organization leads" },
+    { label: "New this week", value: newThisWeek.toLocaleString(), icon: TrendingUp, tone: "green", note: "Added in the last 7 days" },
+    { label: "Qualified", value: qualified.toLocaleString(), icon: Target, tone: "blue", note: "Current pipeline stage" },
+    { label: "Won", value: won.toLocaleString(), icon: Check, tone: "amber", note: "Successfully converted" },
   ];
-  const exportCsv = () => { const rows = [["Lead ID", "Name", "Company", "Source", "Status", "Score"], ...leads.map((lead) => [lead.id, lead.name, lead.company, lead.source, lead.status, String(lead.score)])]; const csv = rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n"); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); link.download = "adometa-loaded-leads.csv"; link.click(); URL.revokeObjectURL(link.href); };
-  return <><PageHeader eyebrow="LIVE WORKSPACE" title={`Good morning, ${userName || "there"}`} description="Here’s what’s happening with your sales pipeline today." action={<div className="page-actions"><button className="button secondary" onClick={exportCsv}>Export loaded leads</button><button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} />{performance && <section className="card personal-performance"><div className="card-header"><div><h2>My performance</h2><p>Authorized records for your salesperson account</p></div><span className="pending-pill">Live data</span></div><div className="performance-grid">{[["Assigned leads", performance.assignedLeads], ["Calls made", performance.calls], ["Follow-ups due", performance.followUpsDue], ["Visits completed", performance.visitsCompleted], ["Bookings", performance.bookings], ["Lost leads", performance.lostLeads]].map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div></section>}<div className="stats-grid">{stats.map(({ label, value, change, Icon, note }) => <div className="stat-card" key={label}><div className="stat-top"><span>{label}</span><div className="stat-icon"><Icon size={17} /></div></div><strong>{value}</strong><div className="stat-foot"><span className="neutral">{change}</span><small>{note}</small></div></div>)}</div><div className="dashboard-grid"><section className="card pipeline-card"><div className="card-header"><div><h2>Pipeline overview</h2><p>Stage mix among the latest {leads.length} loaded leads</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><div className="funnel">{pipeline.map(([stage, stageCount, color]) => { const percent = leads.length ? Math.round((stageCount / leads.length) * 100) : 0; return <div className="funnel-row" key={stage}><span className="funnel-label">{stage}</span><div className="funnel-track"><div className={`funnel-bar ${color}`} style={{ width: `${percent}%` }} /></div><strong>{stageCount}</strong><small>{percent}%</small></div>; })}</div></section><section className="card activity-card"><div className="card-header"><div><h2>Recent leads</h2><p>Latest authorized records</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><div className="activity-list">{leads.slice(0, 4).map((lead) => <div className="activity-item" key={lead.id}><div className="activity-avatar green">{lead.name.split(" ").map((part) => part[0]).join("")}</div><div><p><strong>{lead.name}</strong> entered as {lead.status}</p><small>{lead.date}</small></div></div>)}</div></section></div><section className="card table-card"><div className="card-header"><div><h2>Recent leads</h2><p>Leads that need your attention</p></div><button className="text-button" onClick={onViewLeads}>View all <ArrowUpRight size={15} /></button></div><LeadTable leads={leads.slice(0, 4)} compact /></section></>;
+  const pipeline = [
+    ["New", statuses.new ?? 0, "purple"],
+    ["Contacted", statuses.contacted ?? 0, "blue"],
+    ["Qualified", qualified, "green"],
+    ["Follow-up", statuses.follow_up ?? 0, "orange"],
+    ["Won", won, "dark"],
+    ["Lost", statuses.lost ?? 0, "rose"],
+  ] as const;
+  const exportCsv = () => {
+    const rows = [["Lead ID", "Name", "Company", "Source", "Status", "Score"], ...leads.map((lead) => [lead.id, lead.name, lead.company, lead.source, lead.status, String(lead.score)])];
+    const csv = rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n");
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    link.download = "adometa-loaded-leads.csv";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+  return <>
+    <PageHeader eyebrow="LIVE WORKSPACE" title={`Good morning, ${userName || "there"}`} description="A clear view of your leads, pipeline health, and next steps." action={<div className="page-actions"><button className="button secondary" onClick={exportCsv}>Export loaded leads</button><button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} />
+    {performance && <section className="card personal-performance">
+      <div className="card-header"><div><h2>My performance</h2><p>Your assigned sales activity</p></div><span className="pending-pill">Live data</span></div>
+      <div className="performance-grid">{[["Assigned leads", performance.assignedLeads], ["Calls made", performance.calls], ["Follow-ups due", performance.followUpsDue], ["Visits completed", performance.visitsCompleted], ["Bookings", performance.bookings], ["Lost leads", performance.lostLeads]].map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div>
+    </section>}
+    <div className="stats-grid lead-stats-grid">{stats.map(({ label, value, icon: Icon, tone, note }) => <article className="stat-card lead-stat-card" key={label}><div className="stat-top"><span>{label}</span><div className={`stat-icon ${tone}`}><Icon size={17} /></div></div><strong>{value}</strong><div className="stat-foot"><span className="lead-stat-dot" /> <small>{note}</small></div></article>)}</div>
+    <div className="lead-dashboard-grid">
+      <LeadTrendChart points={trend} loading={isLoadingTrend} />
+      <section className="card pipeline-card lead-pipeline-card">
+        <div className="card-header"><div><p className="eyebrow">PIPELINE</p><h2>Lead stages</h2><p>Current status across all active leads</p></div><button className="text-button" onClick={onViewLeads}>View leads <ArrowUpRight size={15} /></button></div>
+        <div className="funnel">{pipeline.map(([stage, stageCount, color]) => {
+          const percent = total ? Math.round((stageCount / total) * 100) : 0;
+          return <div className="funnel-row" key={stage}><span className="funnel-label">{stage}</span><div className="funnel-track"><div className={`funnel-bar ${color}`} style={{ width: `${percent}%` }} /></div><strong>{stageCount.toLocaleString()}</strong><small>{percent}%</small></div>;
+        })}</div>
+      </section>
+    </div>
+    <section className="card table-card lead-recent-card">
+      <div className="card-header"><div><p className="eyebrow">RECENT ACTIVITY</p><h2>Recently added leads</h2><p>Open any lead to review its complete track record.</p></div><button className="text-button" onClick={onViewLeads}>View all leads <ArrowUpRight size={15} /></button></div>
+      <LeadTable leads={leads.slice(0, 6)} compact onOpen={onOpenLead} />
+    </section>
+  </>;
 }
 
 function LeadsView({ leads, totalCount, isLoading, isSearchPending, isLoadingMore, hasMore, onLoadMore, query, onAdd, canImport, onImport, onOpen, onTransfer, onStatusChange }: { leads: Lead[]; totalCount: number; isLoading: boolean; isSearchPending: boolean; isLoadingMore: boolean; hasMore: boolean; onLoadMore: () => void; query: string; onAdd: () => void; canImport: boolean; onImport: () => void; onOpen: (id: string) => void; onTransfer: (id: string) => void; onStatusChange: (id: string, status: Status) => void }) {
@@ -825,6 +898,52 @@ function LeadsView({ leads, totalCount, isLoading, isSearchPending, isLoadingMor
 
 function LeadTable({ leads, compact = false, onOpen, onTransfer, onStatusChange }: { leads: Lead[]; compact?: boolean; onOpen?: (id: string) => void; onTransfer?: (id: string) => void; onStatusChange?: (id: string, status: Status) => void }) {
   return <div className="table-scroll"><table><thead><tr><th>LEAD</th><th>SOURCE</th><th>STATUS</th><th>LEAD SCORE</th><th>OWNER</th><th>ADDED</th><th /></tr></thead><tbody>{leads.map((lead) => <tr key={lead.id}><td><button className="lead-cell lead-link" onClick={() => onOpen?.(lead.id)}><div className="lead-avatar" style={{ background: lead.color }}>{lead.name.split(" ").map((n) => n[0]).join("")}</div><div><strong>{lead.name}</strong><small>{lead.company} · {lead.id}</small></div></button></td><td>{lead.source}</td><td>{onStatusChange ? <select className={`status-select ${lead.status.toLowerCase().replace("-", "")}`} value={lead.status} onChange={(e) => onStatusChange(lead.id, e.target.value as Status)}>{(["New", "Contacted", "Qualified", "Follow-up", "Won"] as Status[]).map((status) => <option key={status}>{status}</option>)}</select> : <span className={`status ${lead.status.toLowerCase().replace("-", "")}`}>{lead.status}</span>}</td><td><div className="score"><span className="score-bar"><i style={{ width: `${lead.score}%` }} /></span><strong>{lead.score}</strong></div></td><td><span className="owner">{lead.owner}</span></td><td className="date-cell">{lead.date}</td><td><div className="page-actions">{onTransfer && <button className="button secondary" onClick={() => onTransfer(lead.id)}>Transfer</button>}<button className="icon-button" onClick={() => onOpen?.(lead.id)}><MoreHorizontal size={17} /></button></div></td></tr>)}</tbody></table>{!leads.length && <div className="empty-state"><Search size={24} /><strong>No leads found</strong><p>Try a different search term.</p></div>}{compact && <div className="table-foot">Showing {leads.length} lead{leads.length === 1 ? "" : "s"}</div>}</div>;
+}
+
+function formatLeadEvent(event: LeadEvent, salespeople: Array<{ user_id: string; profiles: { full_name: string } | null }>) {
+  const previous = event.previous_value ?? {};
+  const next = event.new_value ?? {};
+  const displayName = (id: unknown) => {
+    if (typeof id !== "string" || !id) return "Unassigned";
+    return salespeople.find((person) => person.user_id === id)?.profiles?.full_name || id.slice(0, 8);
+  };
+  const value = (item: unknown) => {
+    if (item === null || item === undefined || item === "") return "—";
+    if (typeof item === "string") return item.replace(/_/g, " ");
+    return String(item);
+  };
+  const eventLabels: Record<string, string> = {
+    lead_created: "Lead created",
+    status_changed: "Status changed",
+    lead_status_changed: "Status changed",
+    lead_details_updated: "Lead details updated",
+    lead_reassigned: "Lead reassigned",
+    ownership_transferred: "Ownership transferred",
+    lead_shared: "Lead shared",
+    follow_up_scheduled: "Follow-up scheduled",
+    call_recorded: "Call recorded",
+    lead_skipped: "Lead skipped",
+  };
+  let summary = "";
+  if (event.event_type === "ownership_transferred" || event.event_type === "lead_reassigned") {
+    const oldOwner = event.previous_owner ?? previous.assigned_to;
+    const newOwner = event.new_owner ?? next.assigned_to;
+    summary = `${displayName(oldOwner)} → ${displayName(newOwner)}`;
+  } else if (event.event_type === "status_changed" || event.event_type === "lead_status_changed") {
+    summary = `${value(previous.status)} → ${value(next.status)}`;
+  } else if (event.event_type === "lead_details_updated") {
+    const fieldLabels: Record<string, string> = { full_name: "Name", phone: "Phone", email: "Email", company: "Company", city: "City", state: "State", source: "Source", priority: "Priority" };
+    summary = Object.keys(next).map((key) => `${fieldLabels[key] ?? key}: ${value(previous[key])} → ${value(next[key])}`).join(" · ");
+  } else if (event.event_type === "lead_created") {
+    summary = next.source ? `Created from ${value(next.source)}` : "Lead added to the workspace";
+  } else if (event.event_type === "follow_up_scheduled") {
+    summary = next.next_follow_up_at ? `Due ${new Date(String(next.next_follow_up_at)).toLocaleString()}` : "Follow-up date updated";
+  } else {
+    summary = event.notes || value(next.outcome ?? next.status ?? next.category);
+    if (summary === "—") summary = "";
+  }
+  const actor = event.actor_name || (event.actor_id ? displayName(event.actor_id) : "System");
+  return { title: eventLabels[event.event_type] || event.event_type.replace(/_/g, " ").replace(/^\w/, (letter) => letter.toUpperCase()), summary, actor };
 }
 
 function LeadDetails({ lead, events, salespeople, initialMode = "share", onClose, onNotify, onRefresh }: { lead: LeadRecord; events: LeadEvent[]; salespeople: Array<{ user_id: string; role: string; profiles: { full_name: string } | null }>; initialMode?: "share" | "transfer"; onClose: () => void; onNotify: (message: string) => void; onRefresh: () => Promise<void> }) {
@@ -889,8 +1008,13 @@ function LeadDetails({ lead, events, salespeople, initialMode = "share", onClose
               <dl>{importedDetails.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{displayFieldValue(value)}</dd></div>)}</dl>
             </>}
           </section>
-          <h3>Permanent timeline</h3>
-          <div className="timeline">{events.length ? events.map((event) => <div className="timeline-event" key={event.id}><span /><div><strong>{event.event_type.replace(/_/g, " ")}</strong><small>{new Date(event.created_at).toLocaleString()} {event.actor_name ? `· ${event.actor_name}` : ""}</small>{event.notes && <p>{event.notes}</p>}</div></div>) : <p className="muted">No journey events are available yet.</p>}</div>
+          <section className="lead-history">
+            <div className="lead-history-heading"><div><h3>Lead track record</h3><p>Full history of changes and interactions</p></div><span>{events.length} {events.length === 1 ? "event" : "events"}</span></div>
+            <div className="timeline">{events.length ? [...events].reverse().map((event) => {
+              const details = formatLeadEvent(event, salespeople);
+              return <article className="timeline-event" key={event.id}><span /><div className="timeline-event-content"><div className="timeline-event-top"><strong>{details.title}</strong><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time></div>{details.summary && <p>{details.summary}</p>}<small>By {details.actor}</small>{event.notes && event.event_type !== "lead_details_updated" && <p className="timeline-event-note">{event.notes}</p>}</div></article>;
+            }) : <p className="lead-history-empty">No activity recorded for this lead yet.</p>}</div>
+          </section>
           <div className="whatsapp-box"><h3>Personal WhatsApp</h3><textarea value={whatsappText} onChange={(event) => setWhatsappText(event.target.value)} /><button className="button secondary" type="button" onClick={openWhatsApp}>Open WhatsApp</button><small>Opened only; delivery is not confirmed.</small></div>
         </div>
         <form className="share-panel" onSubmit={submit}>
