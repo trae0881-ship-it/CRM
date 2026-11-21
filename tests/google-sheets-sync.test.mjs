@@ -139,8 +139,12 @@ test("organization Integrations page exposes existing Google Sheets and WhatsApp
   assert.match(routes, /path: "\/org\/integrations", label: "Integrations"[\s\S]*roles: ownersAndAdmins/);
   assert.match(app, /view === "Integrations" && membership && <Integrations membership=\{membership\}/);
   assert.match(page, /<GoogleSheetsView membership=\{membership\} onNotify=\{onNotify\} \/>/);
-  assert.match(page, /Business API not connected/);
-  assert.match(page, /Personal click-to-chat is available from lead records/);
+  assert.match(page, /Personal click-to-chat active/);
+  assert.match(page, /Business API setup required/);
+  assert.match(page, /TECHAASVIK API SETUP/);
+  assert.match(page, /server-side Supabase secret/);
+  assert.match(page, /bulkmarketing\.techaasvik\.in/);
+  assert.match(page, /Personal click-to-chat is active from lead records/);
   assert.match(page, /href="\/org\/leads"/);
   assert.match(page, /whatsapp-business-setup/);
 });

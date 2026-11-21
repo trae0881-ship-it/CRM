@@ -646,7 +646,7 @@ function App() {
           {view === "Automation" && membership && <AutomationView membership={membership} onNotify={notify} />}
           {view === "Sales Pipeline" && membership && <SalesPipelineView membership={membership} onNotify={notify} />}
           {view === "Customer 360" && membership && <Customer360View membership={membership} onNotify={notify} />}
-          {view === "Overview" && <Overview leads={leads} totalLeadCount={totalLeadCount} trend={leadTrend} isLoadingTrend={isLoadingLeadTrend} performance={performance} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => navigateToPath("/org/leads")} onOpenLead={(id) => void loadLeadDetails(id)} />}
+          {view === "Overview" && <Overview leads={leads} totalLeadCount={totalLeadCount} trend={leadTrend} isLoadingTrend={isLoadingLeadTrend} performance={performance} role={membership?.role} organizationName={organizationProfile?.name || ""} teamNames={teamNames} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => navigateToPath("/org/leads")} onOpenLead={(id) => void loadLeadDetails(id)} />}
           {view === "Leads" && <LeadsView leads={filteredLeads} totalCount={totalLeadCount} isLoading={isLoadingLeads} isSearchPending={query.trim() !== debouncedQuery} isLoadingMore={isLoadingMoreLeads} hasMore={Boolean(supabase) && operationLeads.length < totalLeadCount} onLoadMore={() => void loadMoreLeads()} query={query} onAdd={() => setShowLeadForm(true)} canImport={membership?.role === "company_owner" || membership?.role === "organization_admin"} onImport={() => setShowLeadImport(true)} onOpen={(externalId) => void loadLeadDetails(externalId)} onTransfer={(externalId) => void loadLeadDetails(externalId, "transfer")} onStatusChange={async (id, status) => { try { if (supabase) await updateLeadStatus(id, status.toLowerCase().replace("-", "_") as LeadStatus); setLeads((all) => all.map((lead) => lead.id === id ? { ...lead, status } : lead)); notify("Lead status updated"); } catch (error) { notify(error instanceof Error ? error.message : "Could not update lead"); } }} />}
           {view === "Campaigns" && (isSupabaseConfigured ? <ModulePending eyebrow="CAMPAIGN MANAGEMENT" title="Campaigns" description="Campaign records will appear here after the campaign repository is connected." icon={<Target size={24} />} /> : <Campaigns onNotify={notify} />)}
           {view === "Follow-ups" && (membership ? <FollowUpsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FOLLOW-UP QUEUE" title="Follow-ups" description="An authenticated organization membership is required." icon={<ClipboardList size={24} />} />)}
@@ -722,9 +722,20 @@ function Integrations({ membership, onNotify }: { membership: Membership; onNoti
           <div className="integration-small-icon"><MessageCircle size={18} /></div>
           <div><h2 id="whatsapp-integration-title">WhatsApp</h2><p>Organization messaging options</p></div>
         </div>
-        <span className="status pending">Business API not connected</span>
+        <div className="whatsapp-status-stack"><span className="status qualified">Personal click-to-chat active</span><span className="status pending">Business API setup required</span></div>
       </div>
-      <p className="muted">Personal click-to-chat is available from lead records. WhatsApp Business API messaging, delivery tracking, and credential setup are not configured.</p>
+      <p className="muted">Personal click-to-chat is active from lead records. Techaasvik API sending and delivery tracking will show active only after a real server-side connection test succeeds.</p>
+      <div className="whatsapp-api-requirements">
+        <div><p className="eyebrow">TECHAASVIK API SETUP</p><h3>What is needed to connect</h3></div>
+        <ul>
+          <li>Techaasvik API documentation or Postman collection, including base URL, authentication header, and connection-check endpoint.</li>
+          <li>API key stored only as a server-side Supabase secret—never in this page, browser storage, or lead notes.</li>
+          <li>Provider account and verified sender/number ID, plus approved template names or IDs and their variable format.</li>
+          <li>Test recipient and documented send/status responses; webhook URL, signature rules, and status events if delivery tracking is required.</li>
+        </ul>
+        <p>Number and template approval happen in Techaasvik. Adometa must verify the account through its API before showing the Business API as active.</p>
+        <a href="https://bulkmarketing.techaasvik.in/" target="_blank" rel="noreferrer">Open Techaasvik <ArrowUpRight size={14} /></a>
+      </div>
       <div className="integration-actions">
         <a className="button secondary" href="/org/leads"><Users size={16} /> Open lead records</a>
         <a className="button secondary" href="/admin/docs#whatsapp-business-setup"><ArrowUpRight size={16} /> Business API setup guide</a>
@@ -828,12 +839,15 @@ function ResetPasswordScreen() {
   return <form className="modal auth-card" onSubmit={submit}><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">PASSWORD RESET</p><h1>Choose a new password</h1><p className="muted">Use a strong password for your secure workspace.</p><label>New password<input required minLength={8} type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{message && <p className="auth-message">{message}</p>}<button className="button primary auth-submit" disabled={busy}>{busy ? "Saving..." : "Update password"}</button><a className="text-button auth-toggle" href="/login">Back to sign in</a></form>;
 }
 
-function Overview({ leads, totalLeadCount, trend, isLoadingTrend, performance, onAdd, onViewLeads, onOpenLead, userName }: {
+function Overview({ leads, totalLeadCount, trend, isLoadingTrend, performance, role, organizationName, teamNames, onAdd, onViewLeads, onOpenLead, userName }: {
   leads: Lead[];
   totalLeadCount: number;
   trend: LeadTrendPoint[];
   isLoadingTrend: boolean;
   performance: PersonalPerformance | null;
+  role?: "super_admin" | "company_owner" | "organization_admin" | "manager" | "agent" | "auditor";
+  organizationName: string;
+  teamNames: string[];
   onAdd: () => void;
   onViewLeads: () => void;
   onOpenLead: (id: string) => void;
@@ -867,8 +881,31 @@ function Overview({ leads, totalLeadCount, trend, isLoadingTrend, performance, o
     link.click();
     URL.revokeObjectURL(link.href);
   };
+  const isOrganizationAdmin = role === "organization_admin" || role === "company_owner";
   return <>
-    <PageHeader eyebrow="LIVE WORKSPACE" title={`Good morning, ${userName || "there"}`} description="A clear view of your leads, pipeline health, and next steps." action={<div className="page-actions"><button className="button secondary" onClick={exportCsv}>Export loaded leads</button><button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} />
+    {isOrganizationAdmin ? <section className="organization-admin-hero">
+      <div className="organization-admin-hero-copy">
+        <p className="eyebrow">ORGANIZATION ADMIN DASHBOARD</p>
+        <h1>{organizationName || "Organization"} workspace</h1>
+        <p>Welcome back, <strong>{userName || "Administrator"}</strong>. Here is your team and lead performance for today.</p>
+      </div>
+      <div className="organization-admin-hero-actions">
+        <span className="organization-live-badge"><i /> Live workspace</span>
+        <button className="button primary" onClick={onAdd}><Plus size={16} /> Add lead</button>
+      </div>
+      <div className="organization-admin-hero-metrics">
+        <div><span>Active leads</span><strong>{total.toLocaleString()}</strong></div>
+        <div><span>New this week</span><strong>{newThisWeek.toLocaleString()}</strong></div>
+        <div><span>Teams</span><strong>{teamNames.length.toLocaleString()}</strong></div>
+        <div><span>Won leads</span><strong>{won.toLocaleString()}</strong></div>
+      </div>
+    </section> : <PageHeader eyebrow="LIVE WORKSPACE" title={`Good morning, ${userName || "there"}`} description="A clear view of your leads, pipeline health, and next steps." action={<div className="page-actions"><button className="button secondary" onClick={exportCsv}>Export loaded leads</button><button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} />}
+    {isOrganizationAdmin && <div className="organization-admin-actions" aria-label="Organization admin quick actions">
+      <a href="/org/leads"><span><Users size={17} /></span><div><strong>Manage leads</strong><small>View, assign and transfer leads</small></div><ArrowUpRight size={15} /></a>
+      <a href="/org/teams"><span><Building2 size={17} /></span><div><strong>Manage teams</strong><small>{teamNames.length} configured team{teamNames.length === 1 ? "" : "s"}</small></div><ArrowUpRight size={15} /></a>
+      <a href="/org/pipeline"><span><Target size={17} /></span><div><strong>Sales pipeline</strong><small>Track stages and opportunities</small></div><ArrowUpRight size={15} /></a>
+      <a href="/org/reports"><span><PieChart size={17} /></span><div><strong>Organization reports</strong><small>Agency and team performance</small></div><ArrowUpRight size={15} /></a>
+    </div>}
     {performance && <section className="card personal-performance">
       <div className="card-header"><div><h2>My performance</h2><p>Your assigned sales activity</p></div><span className="pending-pill">Live data</span></div>
       <div className="performance-grid">{[["Assigned leads", performance.assignedLeads], ["Calls made", performance.calls], ["Follow-ups due", performance.followUpsDue], ["Visits completed", performance.visitsCompleted], ["Bookings", performance.bookings], ["Lost leads", performance.lostLeads]].map(([label, value]) => <div key={String(label)}><strong>{value}</strong><span>{label}</span></div>)}</div>
