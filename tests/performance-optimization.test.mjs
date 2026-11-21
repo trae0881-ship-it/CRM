@@ -42,6 +42,19 @@ test("unread notification badge uses a tenant-scoped count query", async () => {
   assert.match(migration, /on public\.notifications \(organization_id, user_id\)\s+where read_at is null/i);
 });
 
+test("admin dashboards defer detailed datasets and bound dashboard lead previews", async () => {
+  const platformView = await read("src/components/PlatformAdminView.tsx");
+  const platformService = await read("src/services/platform.ts");
+  const app = await read("src/App.tsx");
+  assert.match(platformView, /const needsCompanies = section === "companies" \|\| section === "subscriptions"/);
+  assert.match(platformView, /const needsPlans = section === "plans" \|\| section === "workspaces" \|\| section === "subscriptions"/);
+  assert.match(platformView, /const showCompanies = section === "companies"/);
+  assert.match(platformView, /platform-dashboard-sections/);
+  assert.match(platformView, /lazy\(\(\) => import\("\.\/WorkspaceRequestsView"\)/);
+  assert.match(platformService, /listPlatformAudit[\s\S]*?limit\(20\)/);
+  assert.match(app, /const pageSize = view === "Overview" \? 6 : LEAD_PAGE_SIZE/);
+});
+
 test("application styles do not block initial render on a remote font stylesheet", async () => {
   const styles = await read("src/styles.css");
   assert.doesNotMatch(styles, /@import\s+url\(["']https?:\/\//i);

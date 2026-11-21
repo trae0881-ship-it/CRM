@@ -157,6 +157,7 @@ function App() {
   const [membershipError, setMembershipError] = useState("");
   const [membershipRefresh, setMembershipRefresh] = useState(0);
   const [teamNames, setTeamNames] = useState<string[]>([]);
+  const [isLoadingPerformance, setIsLoadingPerformance] = useState(false);
   const authUserId = useRef<string | null>(null);
   const logoutInProgress = useRef(false);
   const leadPageAbort = useRef<AbortController | null>(null);
@@ -394,17 +395,21 @@ function App() {
   useEffect(() => {
     if (!membership || membership.role !== "agent" || view !== "Overview") {
       setPerformance(null);
+      setIsLoadingPerformance(false);
       return;
     }
     let active = true;
+    setPerformance(null);
+    setIsLoadingPerformance(true);
     void getPersonalPerformance(membership.organization_id, membership.user_id)
       .then((currentPerformance) => { if (active) setPerformance(currentPerformance); })
-      .catch((error) => { if (active) notify(error instanceof Error ? error.message : "Performance data could not be loaded."); });
+      .catch((error) => { if (active) notify(error instanceof Error ? error.message : "Performance data could not be loaded."); })
+      .finally(() => { if (active) setIsLoadingPerformance(false); });
     return () => { active = false; };
   }, [membership?.organization_id, membership?.user_id, membership?.role, view]);
 
   useEffect(() => {
-    if (!supabase || !session || !membership || membership.role === "super_admin" || view !== "Overview") {
+    if (!supabase || !session || !membership || membership.role === "super_admin" || membership.role === "agent" || view !== "Overview") {
       setLeadTrend([]);
       setIsLoadingLeadTrend(false);
       return;
@@ -470,7 +475,7 @@ function App() {
   }, [membership?.organization_id, membership?.role, session?.user.id, view, leadImportRefresh]);
 
   useEffect(() => {
-    if (!supabase || !session || !membership || membership.role === "super_admin" || view !== "Overview") {
+    if (!supabase || !session || !membership || membership.role === "super_admin" || membership.role === "agent" || view !== "Overview") {
       setDuplicateLeadSummary({ duplicateCount: 0, leads: [] });
       setIsLoadingDuplicateLeads(false);
       setDuplicateLeadError("");
@@ -529,7 +534,8 @@ function App() {
     leadPageAbort.current?.abort();
     loadMoreAbort.current?.abort();
     setIsLoadingMoreLeads(false);
-    if (!supabase || !session || !membership || membership.role === "super_admin" || !leadLoadingViews.has(view) || getDocumentationCenter(routePath) || isSaasAdminPath(routePath)) {
+    const isAgentDashboard = membership?.role === "agent" && view === "Overview";
+    if (!supabase || !session || !membership || membership.role === "super_admin" || !leadLoadingViews.has(view) || isAgentDashboard || getDocumentationCenter(routePath) || isSaasAdminPath(routePath)) {
       setIsLoadingLeads(false);
       return;
     }
@@ -537,6 +543,7 @@ function App() {
     const controller = new AbortController();
     leadPageAbort.current = controller;
     setIsLoadingLeads(true);
+    const pageSize = view === "Overview" ? 6 : LEAD_PAGE_SIZE;
     let dateBounds = {};
     if (view === "Leads") {
       if (leadDateFilterError) {
@@ -548,7 +555,7 @@ function App() {
       }
       dateBounds = getLeadDateBounds(leadDateFilter, leadStartDate, leadEndDate);
     }
-    void listLeadsPage(debouncedQuery, { ...dateBounds, offset: 0, limit: LEAD_PAGE_SIZE, includeTotal: true, signal: controller.signal }).then((page) => {
+    void listLeadsPage(debouncedQuery, { ...dateBounds, offset: 0, limit: pageSize, includeTotal: true, signal: controller.signal }).then((page) => {
       if (!active) return;
       setOperationLeads(page.records);
       setLeads(page.records.map(toUiLead));
@@ -811,7 +818,7 @@ function App() {
           {view === "Automation" && membership && <AutomationView membership={membership} onNotify={notify} />}
           {view === "Sales Pipeline" && membership && <SalesPipelineView membership={membership} onNotify={notify} />}
           {view === "Customer 360" && membership && <Customer360View membership={membership} onNotify={notify} />}
-          {view === "Overview" && <Overview leads={leads} totalLeadCount={totalLeadCount} trend={leadTrend} isLoadingTrend={isLoadingLeadTrend} leadTrendDays={leadTrendDays} onLeadTrendDaysChange={setLeadTrendDays} duplicateLeadSummary={duplicateLeadSummary} isLoadingDuplicateLeads={isLoadingDuplicateLeads} duplicateLeadError={duplicateLeadError} performance={performance} role={membership?.role} organizationName={organizationProfile?.name || ""} teamNames={teamNames} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => navigateToPath("/org/leads")} onOpenLead={(id) => void loadLeadDetails(id)} />}
+          {view === "Overview" && <Overview leads={leads} totalLeadCount={totalLeadCount} trend={leadTrend} isLoadingTrend={isLoadingLeadTrend} leadTrendDays={leadTrendDays} onLeadTrendDaysChange={setLeadTrendDays} duplicateLeadSummary={duplicateLeadSummary} isLoadingDuplicateLeads={isLoadingDuplicateLeads} duplicateLeadError={duplicateLeadError} performance={performance} isLoadingPerformance={isLoadingPerformance} role={membership?.role} organizationName={organizationProfile?.name || ""} teamNames={teamNames} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => navigateToPath("/org/leads")} onOpenLead={(id) => void loadLeadDetails(id)} />}
           {view === "Leads" && <LeadsView
             leads={filteredLeads}
             totalCount={isSupabaseConfigured ? totalLeadCount : filteredLeads.length}
@@ -865,7 +872,7 @@ function App() {
           {view === "Reports" && (membership ? <ReportsView membership={membership} onNotify={notify} /> : <ModulePending eyebrow="ANALYTICS" title="Reports & analytics" description="An authenticated organization membership is required." icon={<PieChart size={24} />} />)}
           {view === "Notifications" && (membership ? <NotificationsView membership={membership} onNotify={notify} onUnreadCount={setUnreadNotifications} /> : <ModulePending eyebrow="ACTIVITY CENTER" title="Notifications" description="An authenticated organization membership is required." icon={<Bell size={24} />} />)}
           {view === "Statuses" && (membership?.role === "company_owner" || membership?.role === "organization_admin" ? <StatusSettingsView membership={membership} onNotify={notify} /> : <ModulePending eyebrow="WORKSPACE SETTINGS" title="Lead statuses" description="Only company owners and organization admins can manage statuses." icon={<Settings size={24} />} />)}
-          {view === "Integrations" && membership && <Integrations membership={membership} onNotify={notify} />}
+          {view === "Integrations" && membership?.role === "organization_admin" && <Integrations membership={membership} onNotify={notify} />}
           </Suspense>
         </div>
       </main>
@@ -1055,7 +1062,7 @@ function ResetPasswordScreen() {
   return <form className="modal auth-card" onSubmit={submit}><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">PASSWORD RESET</p><h1>Choose a new password</h1><p className="muted">Use a strong password for your secure workspace.</p><label>New password<input required minLength={8} type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{message && <p className="auth-message">{message}</p>}<button className="button primary auth-submit" disabled={busy}>{busy ? "Saving..." : "Update password"}</button><a className="text-button auth-toggle" href="/login">Back to sign in</a></form>;
 }
 
-function Overview({ leads, totalLeadCount, trend, isLoadingTrend, leadTrendDays, onLeadTrendDaysChange, duplicateLeadSummary, isLoadingDuplicateLeads, duplicateLeadError, performance, role, organizationName, teamNames, onAdd, onViewLeads, onOpenLead, userName }: {
+function Overview({ leads, totalLeadCount, trend, isLoadingTrend, leadTrendDays, onLeadTrendDaysChange, duplicateLeadSummary, isLoadingDuplicateLeads, duplicateLeadError, performance, isLoadingPerformance, role, organizationName, teamNames, onAdd, onViewLeads, onOpenLead, userName }: {
   leads: Lead[];
   totalLeadCount: number;
   trend: LeadTrendPoint[];
@@ -1066,6 +1073,7 @@ function Overview({ leads, totalLeadCount, trend, isLoadingTrend, leadTrendDays,
   isLoadingDuplicateLeads: boolean;
   duplicateLeadError: string;
   performance: PersonalPerformance | null;
+  isLoadingPerformance: boolean;
   role?: "super_admin" | "company_owner" | "organization_admin" | "manager" | "agent" | "auditor";
   organizationName: string;
   teamNames: string[];
@@ -1104,6 +1112,31 @@ function Overview({ leads, totalLeadCount, trend, isLoadingTrend, leadTrendDays,
     URL.revokeObjectURL(link.href);
   };
   const isOrganizationAdmin = role === "organization_admin" || role === "company_owner";
+  if (role === "agent") return <section className="sales-team-dashboard">
+    <PageHeader
+      eyebrow="SALES TEAM DASHBOARD"
+      title={`Good morning, ${userName || "there"}`}
+      description="Your assigned leads, calls, follow-ups, bookings and visits at a glance."
+      action={<div className="sales-dashboard-actions"><a className="button secondary" href="/org/follow-ups">Follow-ups</a><a className="button primary" href="/org/calling"><Headphones size={16} /> Start calling</a></div>}
+    />
+    <section className="card sales-team-performance">
+      <div className="card-header"><div><p className="eyebrow">MY WORK</p><h2>My performance</h2><p>Personal activity for your organization account</p></div><span className="pending-pill">Personal view</span></div>
+      {performance ? <div className="sales-team-metrics">{[
+        ["Assigned leads", performance.assignedLeads],
+        ["New leads", performance.newLeads],
+        ["Calls made", performance.calls],
+        ["Follow-ups due", performance.followUpsDue],
+        ["Bookings", performance.bookings],
+        ["Visits completed", performance.visitsCompleted],
+      ].map(([label, value]) => <article key={String(label)}><strong>{value}</strong><span>{label}</span></article>)}</div>
+        : <p className="sales-team-status" role="status">{isLoadingPerformance ? "Loading your sales activity…" : "Personal performance is temporarily unavailable."}</p>}
+    </section>
+    <div className="sales-team-shortcuts" aria-label="Sales team shortcuts">
+      <a href="/org/leads"><Users size={18} /><span><strong>Leads</strong><small>Review your workspace leads</small></span><ArrowUpRight size={15} /></a>
+      <a href="/org/follow-ups"><ClipboardList size={18} /><span><strong>Follow-ups</strong><small>Keep callbacks on schedule</small></span><ArrowUpRight size={15} /></a>
+      <a href="/org/bookings"><Target size={18} /><span><strong>Bookings</strong><small>Review booking activity</small></span><ArrowUpRight size={15} /></a>
+    </div>
+  </section>;
   return <>
     {isOrganizationAdmin ? <section className="organization-admin-hero">
       <div className="organization-admin-hero-copy">

@@ -143,8 +143,8 @@ test("organization Integrations page exposes existing Google Sheets and WhatsApp
   const pageEnd = app.indexOf("\n}\n\nfunction PublicPage", pageStart);
   const page = app.slice(pageStart, pageEnd);
 
-  assert.match(routes, /path: "\/org\/integrations", label: "Integrations"[\s\S]*roles: ownersAndAdmins/);
-  assert.match(app, /view === "Integrations" && membership && <Integrations membership=\{membership\}/);
+  assert.match(routes, /path: "\/org\/integrations", label: "Integrations"[\s\S]*roles: organizationAdmins/);
+  assert.match(app, /view === "Integrations" && membership\?\.role === "organization_admin"/);
   assert.match(page, /<GoogleSheetsView membership=\{membership\} onNotify=\{onNotify\} \/>/);
   assert.match(page, /Personal click-to-chat active/);
   assert.match(page, /Business API setup required/);

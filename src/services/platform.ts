@@ -292,7 +292,7 @@ export async function listSubscriptionHistory(organizationId?: string) {
 }
 
 export async function listPlatformAudit() {
-  const { data, error } = await client().from("audit_logs").select("id,organization_id,action,entity_type,created_at,metadata").is("organization_id", null).order("created_at", { ascending: false }).limit(50);
+  const { data, error } = await client().from("audit_logs").select("id,organization_id,action,entity_type,created_at,metadata").is("organization_id", null).order("created_at", { ascending: false }).limit(20);
   if (error) throw error;
   return (data ?? []) as PlatformAudit[];
 }

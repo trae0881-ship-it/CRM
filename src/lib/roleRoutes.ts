@@ -20,6 +20,7 @@ export type DashboardRoute = {
 const platformRoles = ["super_admin"] as const satisfies readonly UserRole[];
 const organizationRoles = ["company_owner", "organization_admin", "manager", "agent", "auditor"] as const satisfies readonly UserRole[];
 const ownersAndAdmins = ["company_owner", "organization_admin"] as const satisfies readonly UserRole[];
+const organizationAdmins = ["organization_admin"] as const satisfies readonly UserRole[];
 const teamManagers = ["company_owner", "organization_admin", "manager"] as const satisfies readonly UserRole[];
 const operationalRoles = ["company_owner", "organization_admin", "manager", "agent"] as const satisfies readonly UserRole[];
 
@@ -48,7 +49,7 @@ export const dashboardRoutes: readonly DashboardRoute[] = [
   { path: "/org/pipeline", label: "Pipeline", area: "organization", view: "Sales Pipeline", roles: operationalRoles },
   { path: "/org/customer-360", label: "Customer 360", area: "organization", view: "Customer 360", roles: organizationRoles },
   { path: "/org/automations", label: "Automations", area: "organization", view: "Automation", roles: teamManagers },
-  { path: "/org/integrations", label: "Integrations", area: "organization", view: "Integrations", roles: ownersAndAdmins },
+  { path: "/org/integrations", label: "Integrations", area: "organization", view: "Integrations", roles: organizationAdmins },
   { path: "/org/site-visits", label: "Site Visits", area: "organization", view: "Site Visits", roles: organizationRoles },
   { path: "/org/bookings", label: "Bookings", area: "organization", view: "Bookings", roles: organizationRoles },
   { path: "/org/notifications", label: "Notifications", area: "organization", view: "Notifications", roles: organizationRoles },

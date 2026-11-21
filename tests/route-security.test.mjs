@@ -23,6 +23,9 @@ test("route resolver maps roles, canonical paths, and forbidden areas", () => {
   assert.equal(routeHelpers.canAccessDashboardRoute("/saas/admin/users", "super_admin", false), false);
   assert.equal(routeHelpers.canAccessDashboardRoute("/org/users", "manager", true), false);
   assert.equal(routeHelpers.canAccessDashboardRoute("/org/users", "organization_admin", true), true);
+  assert.equal(routeHelpers.canAccessDashboardRoute("/org/integrations", "organization_admin", true), true);
+  assert.equal(routeHelpers.canAccessDashboardRoute("/org/integrations", "company_owner", true), false);
+  assert.equal(routeHelpers.canAccessDashboardRoute("/org/integrations", "agent", true), false);
   assert.equal(routeHelpers.resolveDashboardRoute("/org/dashboard/")?.path, "/org/dashboard");
   assert.equal(routeHelpers.resolveDashboardRoute("/org/unknown"), null);
   assert.equal(routeHelpers.isMalformedOrganizationPath("/org/undefined"), true);
