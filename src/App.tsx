@@ -1028,6 +1028,14 @@ function LeadDetails({ lead, events, salespeople, initialMode = "share", onClose
   const importedDetails = Object.entries(lead.custom_fields ?? {}).filter(([key, value]) => !key.startsWith("_google_sheets_") && !key.startsWith("_google_sheet_")
     && (!sheetColumns.includes(key) || visibleSheetColumns.includes(key))
     && value !== null && value !== undefined && value !== "");
+  const agencyMap = lead.custom_fields?._google_sheet_agencies;
+  const agencyNames = agencyMap && typeof agencyMap === "object" && !Array.isArray(agencyMap)
+    ? Object.values(agencyMap).map((value) => String(value)).filter(Boolean)
+    : [];
+  const sheetSourceMap = lead.custom_fields?._google_sheet_sources;
+  const sheetSources = sheetSourceMap && typeof sheetSourceMap === "object" && !Array.isArray(sheetSourceMap)
+    ? Object.values(sheetSourceMap).filter((value): value is Record<string, unknown> => typeof value === "object" && value !== null)
+    : [];
   const displayFieldValue = (value: unknown) => typeof value === "string" ? value : JSON.stringify(value);
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="modal lead-details">
@@ -1043,6 +1051,13 @@ function LeadDetails({ lead, events, salespeople, initialMode = "share", onClose
             {importedDetails.length > 0 && <>
               <h3>Imported sheet details</h3>
               <dl>{importedDetails.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{displayFieldValue(value)}</dd></div>)}</dl>
+            </>}
+            {(agencyNames.length > 0 || sheetSources.length > 0) && <>
+              <h3>Agency and sheet source</h3>
+              <dl>
+                {agencyNames.map((agency) => <div key={`agency-${agency}`}><dt>Agency</dt><dd>{agency}</dd></div>)}
+                {sheetSources.map((source, index) => <div key={`sheet-source-${index}`}><dt>{String(source.agency || "Agency sheet")}</dt><dd>{[source.spreadsheetName, source.worksheetName].filter(Boolean).join(" · ") || "Google Sheet"}</dd></div>)}
+              </dl>
             </>}
           </section>
           <section className="lead-history">

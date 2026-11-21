@@ -78,7 +78,7 @@ Deno.serve(async (request) => {
     const user = await validUser(request);
     const scheduled = hasSchedulerSecret(request);
     if (!user && !scheduled) return json({ error: "Authentication required" }, 401);
-    const body = await request.json().catch(() => null) as { integrationId?: string; confirmInitialImport?: boolean; action?: string } | null;
+    const body = await request.json().catch(() => null) as { integrationId?: string; confirmInitialImport?: boolean; action?: string; worksheetId?: string; worksheetName?: string } | null;
     if (!body?.integrationId) return json({ error: "Integration is required" }, 400);
     const action = body.action ?? "sync";
     if (action !== "sync" && action !== "preview") return json({ error: "Unsupported action" }, 400);
@@ -116,13 +116,14 @@ Deno.serve(async (request) => {
       throw new Error(`Google Sheets metadata read failed (${metadataResponse.status}): ${detail}`);
     }
     const metadata = await metadataResponse.json() as { sheets?: Array<{ properties?: { sheetId?: number; title?: string } }> };
-    const requestedWorksheetName = String(integration.worksheet_name || "Sheet1");
-    let selectedSheet = integration.worksheet_id
-      ? metadata.sheets?.find((sheet) => String(sheet.properties?.sheetId) === String(integration.worksheet_id))
+    const requestedWorksheetId = String(body.worksheetId || integration.worksheet_id || "").trim();
+    const requestedWorksheetName = String(body.worksheetName || integration.worksheet_name || "Sheet1").trim();
+    let selectedSheet = requestedWorksheetId
+      ? metadata.sheets?.find((sheet) => String(sheet.properties?.sheetId) === requestedWorksheetId)
       : requestedWorksheetName === "Sheet1"
         ? undefined
         : metadata.sheets?.find((sheet) => sheet.properties?.title === requestedWorksheetName);
-    if (!integration.worksheet_id && requestedWorksheetName === "Sheet1") {
+    if (!requestedWorksheetId && requestedWorksheetName === "Sheet1") {
       let bestScore = 0;
       for (const sheet of metadata.sheets ?? []) {
         const title = sheet.properties?.title;
@@ -162,7 +163,17 @@ Deno.serve(async (request) => {
     }
     const values = (await response.json()).values as string[][] | undefined;
     const headers = normalizeSheetHeaders(values?.[0] ?? []);
-    if (action === "preview") return json({ status: "previewed", worksheetId: String(selectedSheet.properties.sheetId), worksheetName, headers: [...new Set(headers)] });
+    if (action === "preview") return json({
+      status: "previewed",
+      worksheetId: String(selectedSheet.properties.sheetId),
+      worksheetName,
+      headers: [...new Set(headers)],
+      worksheets: (metadata.sheets ?? []).flatMap((sheet) => {
+        const title = sheet.properties?.title;
+        const sheetId = sheet.properties?.sheetId;
+        return title && sheetId !== undefined ? [{ worksheetId: String(sheetId), worksheetName: title }] : [];
+      }),
+    });
     if (!values?.length) return json({ status: "completed", totalRows: 0, newLeads: 0, updatedLeads: 0, duplicateRows: 0, failedRows: 0 });
     const mapping = integration.column_mapping as Record<string, unknown>;
     const nameHeader = findHeader(headers, mapping.full_name, ["Full Name", "Name", "Lead Name", "Customer Name", "Contact Name", "Client Name"]);
@@ -216,6 +227,16 @@ Deno.serve(async (request) => {
               [integration.id]: integration.agency_name,
             },
           } : {}),
+          _google_sheet_sources: {
+            ...(existingCustomFields._google_sheet_sources && typeof existingCustomFields._google_sheet_sources === "object" && !Array.isArray(existingCustomFields._google_sheet_sources)
+              ? existingCustomFields._google_sheet_sources as Record<string, Record<string, unknown>>
+              : {}),
+            [integration.id]: {
+              agency: integration.agency_name || "Unassigned",
+              spreadsheetName: integration.spreadsheet_name || "Google Sheet",
+              worksheetName,
+            },
+          },
           ...(campaignHeader && visibleColumns.includes(campaignHeader) ? { campaign: String(record[campaignHeader] || "").trim() } : {}),
           ...(requirementHeader && visibleColumns.includes(requirementHeader) ? { requirement: String(record[requirementHeader] || "").trim() } : {}),
           ...(notesHeader && visibleColumns.includes(notesHeader) ? { notes: String(record[notesHeader] || "").trim() } : {}),

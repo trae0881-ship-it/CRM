@@ -90,8 +90,19 @@ export async function syncGoogleSheet(id: string, confirmInitialImport = false) 
   return invokeGoogleFunction<GoogleSheetSyncResult>("google-sheets-sync", { integrationId: id, confirmInitialImport });
 }
 
-export async function previewGoogleSheet(id: string) {
-  return invokeGoogleFunction<{ status: "previewed"; worksheetId: string; worksheetName: string; headers: string[] }>("google-sheets-sync", { integrationId: id, action: "preview" });
+export async function previewGoogleSheet(id: string, worksheetId?: string, worksheetName?: string) {
+  return invokeGoogleFunction<{
+    status: "previewed";
+    worksheetId: string;
+    worksheetName: string;
+    headers: string[];
+    worksheets: Array<{ worksheetId: string; worksheetName: string }>;
+  }>("google-sheets-sync", {
+    integrationId: id,
+    action: "preview",
+    worksheetId: worksheetId || undefined,
+    worksheetName: worksheetName || undefined,
+  });
 }
 
 export async function listGoogleSyncRuns(organizationId: string) {

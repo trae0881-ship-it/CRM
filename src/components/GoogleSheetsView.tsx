@@ -234,6 +234,8 @@ function GoogleSheetSource({ integration, busy, onNotify, onReload, onAddTab }: 
   const [previewedSpreadsheetId, setPreviewedSpreadsheetId] = useState("");
   const [previewedWorksheetId, setPreviewedWorksheetId] = useState("");
   const [previewedWorksheetName, setPreviewedWorksheetName] = useState("");
+  const [availableWorksheets, setAvailableWorksheets] = useState<Array<{ worksheetId: string; worksheetName: string }>>([]);
+  const [selectedWorksheetId, setSelectedWorksheetId] = useState(integration.worksheet_id || "");
   const [localBusy, setLocalBusy] = useState(false);
 
   const saveSettings = async (input = spreadsheetInput, mappingToSave = mapping, worksheetNameToSave = worksheetName) => {
@@ -268,7 +270,7 @@ function GoogleSheetSource({ integration, busy, onNotify, onReload, onAddTab }: 
       const reference = await saveSettings();
       setAvailableColumns([]);
       setSelectedColumns([]);
-      const result = await previewGoogleSheet(integration.id);
+      const result = await previewGoogleSheet(integration.id, selectedWorksheetId || reference.worksheetId || undefined, worksheetName);
       const initialSelection = result.headers;
       const mappingToSave = { ...mapping, visible_columns: initialSelection };
       await updateGoogleSheetSettings(integration.id, {
@@ -285,6 +287,8 @@ function GoogleSheetSource({ integration, busy, onNotify, onReload, onAddTab }: 
       setPreviewedSpreadsheetId(reference.spreadsheetId);
       setPreviewedWorksheetId(result.worksheetId);
       setPreviewedWorksheetName(result.worksheetName);
+      setSelectedWorksheetId(result.worksheetId);
+      setAvailableWorksheets(result.worksheets ?? []);
       onNotify(result.headers.length ? `Found ${result.headers.length} columns. Review the fields, then import.` : "No column headers were found in this tab.");
     } catch (error) {
       onNotify(googleSheetsErrorMessage(error, "Sheet columns could not be loaded."));
@@ -318,13 +322,20 @@ function GoogleSheetSource({ integration, busy, onNotify, onReload, onAddTab }: 
   return <article className="agency-sheet-card">
     <div className="agency-sheet-heading">
       <div><p className="eyebrow">AGENCY SOURCE</p><h3>{agencyName || "Name this agency"}</h3><span>{integration.provider_account_email || "Google account"} · {integration.status}</span></div>
-      {!isPending && <span className="agency-tab-badge">{worksheetName}</span>}
+      <div className="agency-source-badges">{availableWorksheets.length > 0 && <span className="agency-tab-badge">{availableWorksheets.length} worksheet tabs</span>}<span className="agency-tab-badge">{availableColumns.length ? `${availableColumns.length} columns` : worksheetName}</span></div>
     </div>
     {isPending && <p className="muted">Paste a spreadsheet link and enter the worksheet tab name for this agency.</p>}
     <div className="agency-sheet-fields">
       <label>Agency name<input required maxLength={120} value={agencyName} onChange={(event) => setAgencyName(event.target.value)} placeholder="e.g. North Star Realty" /></label>
       <label>Spreadsheet link<input value={spreadsheetInput} onChange={(event) => setSpreadsheetInput(event.target.value)} placeholder="Paste Google Sheets link" /></label>
-      <label>Tab name<input value={worksheetName} onChange={(event) => setWorksheetName(event.target.value)} placeholder="e.g. Leads - November" /></label>
+      {availableWorksheets.length > 0 ? <label>Worksheet tab<select value={selectedWorksheetId} onChange={(event) => {
+        const selected = availableWorksheets.find((worksheet) => worksheet.worksheetId === event.target.value);
+        setSelectedWorksheetId(event.target.value);
+        if (selected) setWorksheetName(selected.worksheetName);
+        setAvailableColumns([]);
+        setSelectedColumns([]);
+      }}><option value="">Choose a tab</option>{availableWorksheets.map((worksheet) => <option value={worksheet.worksheetId} key={worksheet.worksheetId}>{worksheet.worksheetName}</option>)}</select></label>
+        : <label>Tab name<input value={worksheetName} onChange={(event) => setWorksheetName(event.target.value)} placeholder="e.g. Leads - November" /></label>}
       <label>Automatic sync<select disabled={disconnected} value={integration.auto_sync ? "on" : "off"} onChange={(event) => void updateGoogleSheetSettings(integration.id, { auto_sync: event.target.value === "on" }).then(onReload).catch((error) => onNotify(googleSheetsErrorMessage(error, "Automatic sync setting could not be saved.")))}><option value="off">Off</option><option value="on">On</option></select></label>
     </div>
     <div className="agency-sheet-actions">
