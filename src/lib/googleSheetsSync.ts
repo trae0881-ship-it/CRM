@@ -19,9 +19,13 @@ export type GoogleSpreadsheetReference = {
 };
 
 export function googleSheetsErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim()) return error.message;
   if (typeof error === "object" && error !== null) {
     const record = error as Record<string, unknown>;
+    const message = typeof record.message === "string" ? record.message.trim() : "";
+    const code = typeof record.code === "string" ? record.code : "";
+    if (code === "PGRST204" || /could not find the ['"]agency_name['"] column.*schema cache/i.test(message)) {
+      return "Google Sheets database setup is incomplete: the agency_name column is missing from Supabase. Apply migration 20261121120500_repair_google_sheet_agency_schema.sql in the same project as this app, then retry. The migration refreshes the API schema cache.";
+    }
     const details = ["message", "details", "hint"]
       .map((key) => {
         const value = record[key];
@@ -30,6 +34,7 @@ export function googleSheetsErrorMessage(error: unknown, fallback: string): stri
       .filter(Boolean);
     if (details.length) return [...new Set(details)].join(" — ");
   }
+  if (error instanceof Error && error.message.trim()) return error.message;
   return fallback;
 }
 

@@ -30,6 +30,7 @@ test("Google Sheets errors expose Supabase details instead of masking them", asy
   assert.equal(exports.googleSheetsErrorMessage({ message: "Update denied", details: "RLS policy rejected row", hint: "Check org role" }, "Fallback"), "Update denied — RLS policy rejected row — Check org role");
   assert.equal(exports.googleSheetsErrorMessage(new Error("Google API denied access"), "Fallback"), "Google API denied access");
   assert.equal(exports.googleSheetsErrorMessage({ code: 403 }, "Fallback"), "Fallback");
+  assert.match(exports.googleSheetsErrorMessage({ code: "PGRST204", message: "Could not find the 'agency_name' column of 'google_sheet_integrations' in the schema cache" }, "Fallback"), /Apply migration 20261121120500_repair_google_sheet_agency_schema\.sql/);
 });
 
 test("Google Sheets lead mapping defines contact normalization and validation", async () => {
@@ -202,4 +203,11 @@ test("agency tabs can disconnect and revoke every sheet using a Google account",
   assert.match(oauth, /eq\("provider_account_email", integration\.provider_account_email\)/);
   assert.match(oauth, /status: "disconnected"/);
   assert.match(oauth, /if \(disconnectError\)/);
+});
+
+test("Google Sheets agency schema repair is additive and reloads PostgREST metadata", async () => {
+  const migration = await readFile(new URL("../supabase/migrations/20261121120500_repair_google_sheet_agency_schema.sql", import.meta.url), "utf8");
+  assert.match(migration, /add column if not exists agency_name text/i);
+  assert.match(migration, /notify pgrst, 'reload schema'/i);
+  assert.doesNotMatch(migration, /\bdrop table\b|\btruncate\b/i);
 });
