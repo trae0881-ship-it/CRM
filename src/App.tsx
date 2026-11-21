@@ -12,6 +12,8 @@ import { getLeadDateBounds } from "./lib/leadDateFilter.mjs";
 import type { LeadDateFilter } from "./lib/leadDateFilter.mjs";
 import { createLead, deleteLead, getLeadByExternalId, getOrganizationDuplicateLeads, getOrganizationLeadTrend, listLeadTimeline, listOrganizationLeadActivity, listOrganizationSalespeople, listLeadsPage, shareLead, transferLead, updateLeadStatus } from "./services/leads";
 import type { DuplicateLeadPreview, DuplicateLeadSummary, LeadTrendPoint, OrganizationLeadActivity } from "./services/leads";
+import { listOrganizationCampaigns, setLeadCampaign } from "./services/campaigns";
+import type { OrganizationCampaign } from "./services/campaigns";
 import { saveCall, skipLead } from "./services/calling";
 import { personalWhatsAppUrl, recordWhatsAppOpened, renderWhatsAppTemplate } from "./services/whatsapp";
 import { requestPasswordReset, signIn, signOut, signUp, updatePassword } from "./services/auth";
@@ -29,6 +31,7 @@ const FollowUpsView = lazy(() => import("./components/OperationsViews").then((mo
 const NotificationsView = lazy(() => import("./components/OperationsViews").then((module) => ({ default: module.NotificationsView })));
 const ReportsView = lazy(() => import("./components/OperationsViews").then((module) => ({ default: module.ReportsView })));
 const SiteVisitsView = lazy(() => import("./components/OperationsViews").then((module) => ({ default: module.SiteVisitsView })));
+const CampaignManagementView = lazy(() => import("./components/CampaignManagementView").then((module) => ({ default: module.CampaignManagementView })));
 const StatusSettingsView = lazy(() => import("./components/OperationsViews").then((module) => ({ default: module.StatusSettingsView })));
 const PlatformAdminView = lazy(() => import("./components/PlatformAdminView").then((module) => ({ default: module.PlatformAdminView })));
 const PlatformUserManagementView = lazy(() => import("./components/PlatformUserManagementView").then((module) => ({ default: module.PlatformUserManagementView })));
@@ -58,7 +61,7 @@ const LEAD_PAGE_SIZE = 50;
 type View = DashboardView;
 const leadLoadingViews = new Set<View>(["Overview", "Leads", "Calling", "Follow-ups", "Site Visits", "Bookings"]);
 type Status = "New" | "Contacted" | "Qualified" | "Follow-up" | "Won";
-type Lead = { id: string; dbId?: string; assignedTo?: string | null; phone?: string | null; name: string; company: string; source: string; status: Status; score: number; owner: string; date: string; createdAt?: string; color: string };
+type Lead = { id: string; dbId?: string; assignedTo?: string | null; campaignId?: string | null; phone?: string | null; name: string; company: string; source: string; status: Status; score: number; owner: string; date: string; createdAt?: string; color: string };
 
 const initialLeads: Lead[] = [
   { id: "AD-1048", name: "Rohan Mehta", company: "Mehta Developers", source: "Website", status: "Qualified", score: 92, owner: "AS", date: "Today, 10:42 AM", createdAt: new Date().toISOString(), color: "#e1f4ec" },
@@ -131,6 +134,7 @@ function App() {
   const [membershipOptions, setMembershipOptions] = useState<MembershipOption[]>([]);
   const [organizationProfile, setOrganizationProfile] = useState<OrganizationProfile | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [campaignOptions, setCampaignOptions] = useState<OrganizationCampaign[]>([]);
   const [selectedLead, setSelectedLead] = useState<LeadRecord | null>(null);
   const [timeline, setTimeline] = useState<LeadEvent[]>([]);
   const [salespeople, setSalespeople] = useState<Array<{ user_id: string; role: string; profiles: { full_name: string } | null }>>([]);
@@ -426,6 +430,20 @@ function App() {
   }, [membership?.organization_id, membership?.role, session?.user.id, showLeadForm, view]);
 
   useEffect(() => {
+    if (!supabase || !membership || (view !== "Leads" && !showLeadForm && !selectedLead)) {
+      setCampaignOptions([]);
+      return;
+    }
+    let active = true;
+    void listOrganizationCampaigns(membership.organization_id).then((campaigns) => {
+      if (active) setCampaignOptions(campaigns);
+    }).catch((error) => {
+      if (active) notify(error instanceof Error ? error.message : "Campaigns could not be loaded.");
+    });
+    return () => { active = false; };
+  }, [membership?.organization_id, membership?.role, selectedLead?.id, session?.user.id, showLeadForm, view]);
+
+  useEffect(() => {
     if (!supabase || !session || !membership || view !== "Leads" || !["company_owner", "organization_admin", "manager"].includes(membership.role)) {
       setOrganizationLeadActivity([]);
       setIsLoadingLeadActivity(false);
@@ -573,7 +591,7 @@ function App() {
   const filteredLeads = useMemo(() => {
     if (isSupabaseConfigured) return leads;
     const searchMatches = leads.filter((lead) =>
-      `${lead.name} ${lead.company} ${lead.id} ${lead.source}`.toLowerCase().includes(query.toLowerCase()),
+      `${lead.name} ${lead.company} ${lead.id} ${lead.source} ${lead.phone || ""}`.toLowerCase().includes(query.toLowerCase()),
     );
     if (view !== "Leads") return searchMatches;
     if (leadDateFilterError) return [];
@@ -605,7 +623,8 @@ function App() {
     if (supabase) {
       try {
         const assignedTo = String(form.get("assigned_to") || "").trim() || null;
-        const saved = await createLead({ full_name: name, company: String(form.get("company") || "New account"), phone: String(form.get("phone") || "") || null, assigned_to: assignedTo });
+        const campaignId = String(form.get("campaign_id") || "").trim() || null;
+        const saved = await createLead({ full_name: name, company: String(form.get("company") || "New account"), phone: String(form.get("phone") || "") || null, assigned_to: assignedTo, campaign_id: campaignId });
         const uiLead = toUiLead(saved);
         if (!debouncedQuery) {
           setLeads((current) => [uiLead, ...current]);
@@ -652,6 +671,18 @@ function App() {
       notify("Lead deleted successfully");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Lead could not be deleted");
+    }
+  };
+
+  const changeLeadCampaign = async (externalId: string, campaignId: string | null) => {
+    try {
+      await setLeadCampaign(externalId, campaignId);
+      setOperationLeads((current) => current.map((lead) => lead.external_id === externalId ? { ...lead, campaign_id: campaignId } : lead));
+      setLeads((current) => current.map((lead) => lead.id === externalId ? { ...lead, campaignId } : lead));
+      setSelectedLead((current) => current?.external_id === externalId ? { ...current, campaign_id: campaignId } : current);
+      notify("Lead campaign updated.");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Lead campaign could not be updated.");
     }
   };
 
@@ -771,8 +802,48 @@ function App() {
           {view === "Sales Pipeline" && membership && <SalesPipelineView membership={membership} onNotify={notify} />}
           {view === "Customer 360" && membership && <Customer360View membership={membership} onNotify={notify} />}
           {view === "Overview" && <Overview leads={leads} totalLeadCount={totalLeadCount} trend={leadTrend} isLoadingTrend={isLoadingLeadTrend} leadTrendDays={leadTrendDays} onLeadTrendDaysChange={setLeadTrendDays} duplicateLeadSummary={duplicateLeadSummary} isLoadingDuplicateLeads={isLoadingDuplicateLeads} duplicateLeadError={duplicateLeadError} performance={performance} role={membership?.role} organizationName={organizationProfile?.name || ""} teamNames={teamNames} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => navigateToPath("/org/leads")} onOpenLead={(id) => void loadLeadDetails(id)} />}
-          {view === "Leads" && <LeadsView leads={filteredLeads} totalCount={isSupabaseConfigured ? totalLeadCount : filteredLeads.length} isLoading={isLoadingLeads} isSearchPending={query.trim() !== debouncedQuery} isLoadingMore={isLoadingMoreLeads} hasMore={Boolean(supabase) && !leadDateFilterError && operationLeads.length < totalLeadCount} onLoadMore={() => void loadMoreLeads()} query={query} dateFilter={leadDateFilter} startDate={leadStartDate} endDate={leadEndDate} dateFilterError={leadDateFilterError} activity={organizationLeadActivity} isLoadingActivity={isLoadingLeadActivity} canTrack={membership?.role === "company_owner" || membership?.role === "organization_admin" || membership?.role === "manager"} salespeople={salespeople} onDateFilterChange={setLeadDateFilter} onStartDateChange={setLeadStartDate} onEndDateChange={setLeadEndDate} onAdd={() => setShowLeadForm(true)} canImport={membership?.role === "company_owner" || membership?.role === "organization_admin"} onImport={() => setShowLeadImport(true)} onOpen={(externalId) => void loadLeadDetails(externalId)} onTransfer={(externalId) => void loadLeadDetails(externalId, "transfer")} onDelete={removeLead} canDelete={membership?.role === "company_owner" || membership?.role === "organization_admin"} onStatusChange={async (id, status) => { try { if (supabase) await updateLeadStatus(id, status.toLowerCase().replace("-", "_") as LeadStatus); setLeads((all) => all.map((lead) => lead.id === id ? { ...lead, status } : lead)); notify("Lead status updated"); } catch (error) { notify(error instanceof Error ? error.message : "Could not update lead"); } }} />}
-          {view === "Campaigns" && (isSupabaseConfigured ? <ModulePending eyebrow="CAMPAIGN MANAGEMENT" title="Campaigns" description="Campaign records will appear here after the campaign repository is connected." icon={<Target size={24} />} /> : <Campaigns onNotify={notify} />)}
+          {view === "Leads" && <LeadsView
+            leads={filteredLeads}
+            totalCount={isSupabaseConfigured ? totalLeadCount : filteredLeads.length}
+            isLoading={isLoadingLeads}
+            isSearchPending={query.trim() !== debouncedQuery}
+            isLoadingMore={isLoadingMoreLeads}
+            hasMore={Boolean(supabase) && !leadDateFilterError && operationLeads.length < totalLeadCount}
+            onLoadMore={() => void loadMoreLeads()}
+            query={query}
+            onQueryChange={setQuery}
+            dateFilter={leadDateFilter}
+            startDate={leadStartDate}
+            endDate={leadEndDate}
+            dateFilterError={leadDateFilterError}
+            activity={organizationLeadActivity}
+            isLoadingActivity={isLoadingLeadActivity}
+            canTrack={membership?.role === "company_owner" || membership?.role === "organization_admin" || membership?.role === "manager"}
+            salespeople={salespeople}
+            campaigns={campaignOptions}
+            canManageCampaigns={membership?.role === "company_owner" || membership?.role === "organization_admin"}
+            onCampaignChange={changeLeadCampaign}
+            onDateFilterChange={setLeadDateFilter}
+            onStartDateChange={setLeadStartDate}
+            onEndDateChange={setLeadEndDate}
+            onAdd={() => setShowLeadForm(true)}
+            canImport={membership?.role === "company_owner" || membership?.role === "organization_admin"}
+            onImport={() => setShowLeadImport(true)}
+            onOpen={(externalId) => void loadLeadDetails(externalId)}
+            onTransfer={(externalId) => void loadLeadDetails(externalId, "transfer")}
+            onDelete={removeLead}
+            canDelete={membership?.role === "company_owner" || membership?.role === "organization_admin"}
+            onStatusChange={async (id, status) => {
+              try {
+                if (supabase) await updateLeadStatus(id, status.toLowerCase().replace("-", "_") as LeadStatus);
+                setLeads((all) => all.map((lead) => lead.id === id ? { ...lead, status } : lead));
+                notify("Lead status updated");
+              } catch (error) {
+                notify(error instanceof Error ? error.message : "Could not update lead");
+              }
+            }}
+          />}
+          {view === "Campaigns" && membership && <CampaignManagementView membership={membership} onNotify={notify} />}
           {view === "Follow-ups" && (membership ? <FollowUpsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FOLLOW-UP QUEUE" title="Follow-ups" description="An authenticated organization membership is required." icon={<ClipboardList size={24} />} />)}
           {view === "Calling" && <CallingWorkspace leads={filteredLeads} membership={membership} hasMore={Boolean(supabase) && operationLeads.length < totalLeadCount} isLoadingMore={isLoadingMoreLeads} onLoadMore={loadMoreLeads} onNotify={notify} />}
           {view === "Site Visits" && (membership ? <SiteVisitsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FIELD WORK" title="Site visits" description="An authenticated organization membership is required." icon={<CalendarDays size={24} />} />)}
@@ -787,13 +858,23 @@ function App() {
           </Suspense>
         </div>
       </main>
-      {showLeadForm && <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setShowLeadForm(false)}><form className="modal" onSubmit={addLead}><div className="modal-head"><div><p className="eyebrow">NEW RECORD</p><h2>Create a lead</h2></div><button type="button" className="icon-button" onClick={() => setShowLeadForm(false)}><X size={19} /></button></div><label>Full name<input name="name" required placeholder="e.g. Rohan Mehta" autoFocus /></label><label>Company<input name="company" placeholder="e.g. Acme Pvt. Ltd." /></label><label>Phone number<input name="phone" type="tel" placeholder="+91 98765 43210" /></label>{membership && ["company_owner", "organization_admin", "manager"].includes(membership.role) && <label>Assign to<select name="assigned_to" defaultValue=""><option value="">Leave unassigned</option>{salespeople.map((person) => <option key={person.user_id} value={person.user_id}>{person.profiles?.full_name || person.user_id.slice(0, 8)}</option>)}</select></label>}<div className="modal-actions"><button type="button" className="button secondary" onClick={() => setShowLeadForm(false)}>Cancel</button><button className="button primary" type="submit">Create lead</button></div></form></div>}
+      {showLeadForm && <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setShowLeadForm(false)}>
+        <form className="modal" onSubmit={addLead}>
+          <div className="modal-head"><div><p className="eyebrow">NEW RECORD</p><h2>Create a lead</h2></div><button type="button" className="icon-button" onClick={() => setShowLeadForm(false)}><X size={19} /></button></div>
+          <label>Full name<input name="name" required placeholder="e.g. Rohan Mehta" autoFocus /></label>
+          <label>Company<input name="company" placeholder="e.g. Acme Pvt. Ltd." /></label>
+          <label>Phone number<input name="phone" type="tel" placeholder="+91 98765 43210" /></label>
+          {campaignOptions.length > 0 && <label>Campaign<select name="campaign_id" defaultValue=""><option value="">No campaign</option>{campaignOptions.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</select></label>}
+          {membership && ["company_owner", "organization_admin", "manager"].includes(membership.role) && <label>Assign to<select name="assigned_to" defaultValue=""><option value="">Leave unassigned</option>{salespeople.map((person) => <option key={person.user_id} value={person.user_id}>{person.profiles?.full_name || person.user_id.slice(0, 8)}</option>)}</select></label>}
+          <div className="modal-actions"><button type="button" className="button secondary" onClick={() => setShowLeadForm(false)}>Cancel</button><button className="button primary" type="submit">Create lead</button></div>
+        </form>
+      </div>}
       {showLeadImport && membership && <LeadCsvImportModal organizationId={membership.organization_id} onClose={() => setShowLeadImport(false)} onImported={(result) => {
         setShowLeadImport(false);
         if (result.imported) setLeadImportRefresh((current) => current + 1);
         notify(`${result.imported} leads imported; ${result.duplicates} existing duplicates and ${result.invalidRows} invalid rows skipped.${result.error ? ` ${result.error}` : ""}`);
       }} onNotify={notify} />}
-      {selectedLead && <LeadDetails lead={selectedLead} events={timeline} salespeople={salespeople} initialMode={leadDetailsMode} canDelete={membership?.role === "company_owner" || membership?.role === "organization_admin"} onClose={() => setSelectedLead(null)} onDelete={removeLead} onNotify={notify} onRefresh={async () => setTimeline(await listLeadTimeline(selectedLead.id))} />}
+      {selectedLead && <LeadDetails lead={selectedLead} events={timeline} salespeople={salespeople} campaigns={campaignOptions} initialMode={leadDetailsMode} canDelete={membership?.role === "company_owner" || membership?.role === "organization_admin"} onClose={() => setSelectedLead(null)} onDelete={removeLead} onNotify={notify} onRefresh={async () => setTimeline(await listLeadTimeline(selectedLead.id))} />}
       {toast && <div className="toast"><Check size={17} />{toast}</div>}
     </div>
   )}</DashboardLayout></ProtectedRoute>;
@@ -1079,9 +1160,41 @@ function DuplicateLeadRow({ lead, onOpen }: { lead: DuplicateLeadPreview; onOpen
   </button>;
 }
 
-function LeadsView({ leads, totalCount, isLoading, isSearchPending, isLoadingMore, hasMore, onLoadMore, query, dateFilter, startDate, endDate, dateFilterError, activity, isLoadingActivity, canTrack, salespeople, onDateFilterChange, onStartDateChange, onEndDateChange, onAdd, canImport, onImport, onOpen, onTransfer, onDelete, canDelete, onStatusChange }: { leads: Lead[]; totalCount: number; isLoading: boolean; isSearchPending: boolean; isLoadingMore: boolean; hasMore: boolean; onLoadMore: () => void; query: string; dateFilter: LeadDateFilter; startDate: string; endDate: string; dateFilterError: string; activity: OrganizationLeadActivity[]; isLoadingActivity: boolean; canTrack: boolean; salespeople: Array<{ user_id: string; role: string; profiles: { full_name: string } | null }>; onDateFilterChange: (filter: LeadDateFilter) => void; onStartDateChange: (date: string) => void; onEndDateChange: (date: string) => void; onAdd: () => void; canImport: boolean; onImport: () => void; onOpen: (id: string) => void; onTransfer: (id: string) => void; onDelete: (id: string) => void; canDelete: boolean; onStatusChange: (id: string, status: Status) => void }) {
+function LeadsView({ leads, totalCount, isLoading, isSearchPending, isLoadingMore, hasMore, onLoadMore, query, onQueryChange, dateFilter, startDate, endDate, dateFilterError, activity, isLoadingActivity, canTrack, salespeople, campaigns, canManageCampaigns, onCampaignChange, onDateFilterChange, onStartDateChange, onEndDateChange, onAdd, canImport, onImport, onOpen, onTransfer, onDelete, canDelete, onStatusChange }: {
+  leads: Lead[];
+  totalCount: number;
+  isLoading: boolean;
+  isSearchPending: boolean;
+  isLoadingMore: boolean;
+  hasMore: boolean;
+  onLoadMore: () => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  dateFilter: LeadDateFilter;
+  startDate: string;
+  endDate: string;
+  dateFilterError: string;
+  activity: OrganizationLeadActivity[];
+  isLoadingActivity: boolean;
+  canTrack: boolean;
+  salespeople: Array<{ user_id: string; role: string; profiles: { full_name: string } | null }>;
+  campaigns: OrganizationCampaign[];
+  canManageCampaigns: boolean;
+  onCampaignChange: (externalId: string, campaignId: string | null) => void;
+  onDateFilterChange: (filter: LeadDateFilter) => void;
+  onStartDateChange: (date: string) => void;
+  onEndDateChange: (date: string) => void;
+  onAdd: () => void;
+  canImport: boolean;
+  onImport: () => void;
+  onOpen: (id: string) => void;
+  onTransfer: (id: string) => void;
+  onDelete: (id: string) => void;
+  canDelete: boolean;
+  onStatusChange: (id: string, status: Status) => void;
+}) {
   const isRefreshing = isLoading || isSearchPending;
-  return <><PageHeader eyebrow="LEAD MANAGEMENT" title="Leads" description={isRefreshing && leads.length ? "Updating results; the previous result set remains visible." : `Showing ${leads.length} of ${totalCount} matching authorized leads.`} action={<div className="page-actions">{canImport && <button className="button secondary" onClick={onImport}><Upload size={16} /> Import CSV</button>}<button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} /><div className="toolbar"><div className="filter-search"><Search size={17} /><input placeholder="Search leads..." value={query} readOnly /></div><label className="lead-filter-control"><Filter size={16} /><span>Lead menu</span><select aria-label="Filter leads by age or date" value={dateFilter} onChange={(event) => onDateFilterChange(event.target.value as LeadDateFilter)}><option value="all">All leads</option><option value="new">New leads · last 7 days</option><option value="old">Old leads · over 7 days</option><option value="custom">Custom date range</option></select></label>{dateFilter === "custom" && <div className="lead-date-range"><label>From<input aria-label="Start date" type="date" value={startDate} max={endDate || undefined} onChange={(event) => onStartDateChange(event.target.value)} /></label><label>To<input aria-label="End date" type="date" value={endDate} min={startDate || undefined} onChange={(event) => onEndDateChange(event.target.value)} /></label></div>}{dateFilterError && <p className="lead-filter-error" role="alert">{dateFilterError}</p>}</div><section className="card table-card">{isLoading && !leads.length ? <div className="route-loading" role="status">Loading leads…</div>   : <LeadTable leads={leads} salespeople={salespeople} onOpen={onOpen} onTransfer={canTrack ? onTransfer : undefined} onDelete={onDelete} canDelete={canDelete} onStatusChange={onStatusChange} />}{hasMore && <div className="lead-pagination"><button className="button secondary" disabled={isLoadingMore} onClick={onLoadMore}>{isLoadingMore ? "Loading…" : `Load more (${totalCount - leads.length} remaining)`}</button></div>}</section>{canTrack && <section className="card organization-track-record"><div className="card-header"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Every lead track record</h2><p>Recent creation, ownership, status, call, visit and booking activity across the organization.</p></div><span className="pending-pill">{isLoadingActivity ? "Loading…" : `${activity.length} recent events`}</span></div>{isLoadingActivity ? <p className="muted" role="status">Loading lead activity…</p> : activity.length ? <div className="organization-track-list">{activity.map((event) => { const details = formatLeadEvent(event, salespeople); return <button className="organization-track-row" key={event.id} onClick={() => event.lead_external_id && onOpen(event.lead_external_id)}><span className="organization-track-dot" /><span className="organization-track-main"><strong>{event.lead_name}</strong><span>{details.title}</span>{details.summary && <small>{details.summary}</small>}</span><span className="organization-track-meta"><small>By {details.actor}</small><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time></span><ArrowUpRight size={15} /></button>; })}</div> : <div className="empty-state"><ClipboardList size={24} /><strong>No lead activity recorded</strong><p>Lead actions will appear here as they happen.</p></div>}</section>}</>;
+  return <><PageHeader eyebrow="LEAD MANAGEMENT" title="Leads" description={isRefreshing && leads.length ? "Updating results; the previous result set remains visible." : `Showing ${leads.length} of ${totalCount} matching authorized leads.`} action={<div className="page-actions">{canImport && <button className="button secondary" onClick={onImport}><Upload size={16} /> Import CSV</button>}<button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} /><div className="toolbar"><div className="filter-search"><Search size={17} /><input aria-label="Search leads by name, email, phone, or lead ID" placeholder="Search by name or phone number..." value={query} onChange={(event) => onQueryChange(event.target.value)} /></div><label className="lead-filter-control"><Filter size={16} /><span>Lead menu</span><select aria-label="Filter leads by age or date" value={dateFilter} onChange={(event) => onDateFilterChange(event.target.value as LeadDateFilter)}><option value="all">All leads</option><option value="new">New leads · last 7 days</option><option value="old">Old leads · over 7 days</option><option value="custom">Custom date range</option></select></label>{dateFilter === "custom" && <div className="lead-date-range"><label>From<input aria-label="Start date" type="date" value={startDate} max={endDate || undefined} onChange={(event) => onStartDateChange(event.target.value)} /></label><label>To<input aria-label="End date" type="date" value={endDate} min={startDate || undefined} onChange={(event) => onEndDateChange(event.target.value)} /></label></div>}{dateFilterError && <p className="lead-filter-error" role="alert">{dateFilterError}</p>}</div><section className="card table-card">{isLoading && !leads.length ? <div className="route-loading" role="status">Loading leads…</div>   : <LeadTable leads={leads} salespeople={salespeople} onOpen={onOpen} onTransfer={canTrack ? onTransfer : undefined} onDelete={onDelete} canDelete={canDelete} onStatusChange={onStatusChange} />}{hasMore && <div className="lead-pagination"><button className="button secondary" disabled={isLoadingMore} onClick={onLoadMore}>{isLoadingMore ? "Loading…" : `Load more (${totalCount - leads.length} remaining)`}</button></div>}</section>{canTrack && <section className="card organization-track-record"><div className="card-header"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Every lead track record</h2><p>Recent creation, ownership, status, call, visit and booking activity across the organization.</p></div><span className="pending-pill">{isLoadingActivity ? "Loading…" : `${activity.length} recent events`}</span></div>{isLoadingActivity ? <p className="muted" role="status">Loading lead activity…</p> : activity.length ? <div className="organization-track-list">{activity.map((event) => { const details = formatLeadEvent(event, salespeople); return <button className="organization-track-row" key={event.id} onClick={() => event.lead_external_id && onOpen(event.lead_external_id)}><span className="organization-track-dot" /><span className="organization-track-main"><strong>{event.lead_name}</strong><span>{details.title}</span>{details.summary && <small>{details.summary}</small>}</span><span className="organization-track-meta"><small>By {details.actor}</small><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time></span><ArrowUpRight size={15} /></button>; })}</div> : <div className="empty-state"><ClipboardList size={24} /><strong>No lead activity recorded</strong><p>Lead actions will appear here as they happen.</p></div>}</section>}</>;
 }
 
 function LeadTable({ leads, compact = false, salespeople = [], onOpen, onTransfer, onDelete, canDelete = false, onStatusChange }: { leads: Lead[]; compact?: boolean; salespeople?: Array<{ user_id: string; profiles: { full_name: string } | null }>; onOpen?: (id: string) => void; onTransfer?: (id: string) => void; onDelete?: (id: string) => void; canDelete?: boolean; onStatusChange?: (id: string, status: Status) => void }) {
