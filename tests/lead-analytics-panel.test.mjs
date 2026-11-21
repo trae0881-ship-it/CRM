@@ -8,8 +8,19 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("organization sales reports include the image-style lead analytics panel", async () => {
   const operations = await readFile(path.join(root, "src/components/OperationsViews.tsx"), "utf8");
-  assert.match(operations, /LeadAnalyticsPanel rows=\{filtered\}/);
+  assert.match(operations, /LeadAnalyticsPanel rows=\{leadReportRows\}/);
   assert.match(operations, /Organization and sales-team lead analytics/);
+  assert.match(operations, /Filter reports by campaign/);
+  assert.match(operations, /downloadFollowUps\("csv"\)/);
+  assert.match(operations, /follow_up_due_at/);
+});
+
+test("campaign lead and follow-up reports include every authorized database page", async () => {
+  const reports = await readFile(path.join(root, "src/services/reports.ts"), "utf8");
+  assert.match(reports, /fetchAuthorizedFollowUpReport/);
+  assert.match(reports, /\.range\(from, from \+ reportPageSize - 1\)/);
+  assert.match(reports, /campaign_id,custom_fields/);
+  assert.match(reports, /follow_up_tasks/);
 });
 
 test("SaaS dashboard loads platform-wide lead analytics through an authorized RPC", async () => {

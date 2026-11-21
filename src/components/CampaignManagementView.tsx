@@ -1,11 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { ArrowUpRight, FileSpreadsheet, Plus, Search, Target, Users, X } from "lucide-react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, FileSpreadsheet, Plus, Search, Target, Users, X } from "lucide-react";
 import { createOrganizationCampaign, listCampaignAccess, listCampaignLeads, listOrganizationCampaigns, searchCampaignLeadCandidates, setCampaignAccess, setLeadCampaign } from "../services/campaigns";
 import type { CampaignAccessRecord, CampaignLead, OrganizationCampaign } from "../services/campaigns";
 import { listOrganizationMembers } from "../services/workspace";
 import type { Membership, OrganizationMember } from "../services/workspace";
 
 const GoogleSheetsView = lazy(() => import("./GoogleSheetsView").then((module) => ({ default: module.GoogleSheetsView })));
+const campaignLeadPageSize = 10;
 
 export function CampaignManagementView({ membership, onNotify }: { membership: Membership; onNotify: (message: string) => void }) {
   const [campaigns, setCampaigns] = useState<OrganizationCampaign[]>([]);
@@ -18,7 +19,11 @@ export function CampaignManagementView({ membership, onNotify }: { membership: M
   const [managingLeads, setManagingLeads] = useState<OrganizationCampaign | null>(null);
   const [sheetsCampaign, setSheetsCampaign] = useState<OrganizationCampaign | null>(null);
   const [campaignLeads, setCampaignLeads] = useState<CampaignLead[]>([]);
+  const [campaignLeadPage, setCampaignLeadPage] = useState(1);
+  const [campaignLeadTotal, setCampaignLeadTotal] = useState(0);
   const [leadCandidates, setLeadCandidates] = useState<CampaignLead[]>([]);
+  const [candidatePage, setCandidatePage] = useState(1);
+  const [candidateTotal, setCandidateTotal] = useState(0);
   const [leadSearch, setLeadSearch] = useState("");
   const [loadingCampaignLeads, setLoadingCampaignLeads] = useState(false);
   const [searchingCandidates, setSearchingCandidates] = useState(false);
@@ -79,15 +84,19 @@ export function CampaignManagementView({ membership, onNotify }: { membership: M
   const openLeadManager = async (campaign: OrganizationCampaign) => {
     setManagingLeads(campaign);
     setLeadSearch("");
+    setCampaignLeadPage(1);
+    setCandidatePage(1);
     setLoadingCampaignLeads(true);
     setSearchingCandidates(isAdmin);
     try {
       const [currentLeads, candidates] = await Promise.all([
-        listCampaignLeads(campaign.id),
-        isAdmin ? searchCampaignLeadCandidates(membership.organization_id) : Promise.resolve([]),
+        listCampaignLeads(campaign.id, 1, campaignLeadPageSize),
+        isAdmin ? searchCampaignLeadCandidates(membership.organization_id, "", 1, campaignLeadPageSize) : Promise.resolve({ leads: [], totalCount: 0 }),
       ]);
-      setCampaignLeads(currentLeads);
-      setLeadCandidates(candidates);
+      setCampaignLeads(currentLeads.leads);
+      setCampaignLeadTotal(currentLeads.totalCount);
+      setLeadCandidates(candidates.leads);
+      setCandidateTotal(candidates.totalCount);
     } catch (error) {
       onNotify(error instanceof Error ? error.message : "Campaign leads could not be loaded.");
     } finally {
@@ -101,7 +110,10 @@ export function CampaignManagementView({ membership, onNotify }: { membership: M
     if (!campaign) return;
     setLoadingCampaignLeads(true);
     try {
-      setCampaignLeads(await listCampaignLeads(campaign.id));
+      const result = await listCampaignLeads(campaign.id, 1, campaignLeadPageSize);
+      setCampaignLeadPage(1);
+      setCampaignLeads(result.leads);
+      setCampaignLeadTotal(result.totalCount);
     } catch (error) {
       onNotify(error instanceof Error ? error.message : "Campaign leads could not be refreshed.");
     } finally {
@@ -113,7 +125,39 @@ export function CampaignManagementView({ membership, onNotify }: { membership: M
     event.preventDefault();
     setSearchingCandidates(true);
     try {
-      setLeadCandidates(await searchCampaignLeadCandidates(membership.organization_id, leadSearch));
+      const result = await searchCampaignLeadCandidates(membership.organization_id, leadSearch, 1, campaignLeadPageSize);
+      setCandidatePage(1);
+      setLeadCandidates(result.leads);
+      setCandidateTotal(result.totalCount);
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Available leads could not be loaded.");
+    } finally {
+      setSearchingCandidates(false);
+    }
+  };
+
+  const changeCampaignLeadPage = async (page: number) => {
+    if (!managingLeads) return;
+    setLoadingCampaignLeads(true);
+    try {
+      const result = await listCampaignLeads(managingLeads.id, page, campaignLeadPageSize);
+      setCampaignLeadPage(page);
+      setCampaignLeads(result.leads);
+      setCampaignLeadTotal(result.totalCount);
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Campaign leads could not be loaded.");
+    } finally {
+      setLoadingCampaignLeads(false);
+    }
+  };
+
+  const changeCandidatePage = async (page: number) => {
+    setSearchingCandidates(true);
+    try {
+      const result = await searchCampaignLeadCandidates(membership.organization_id, leadSearch, page, campaignLeadPageSize);
+      setCandidatePage(page);
+      setLeadCandidates(result.leads);
+      setCandidateTotal(result.totalCount);
     } catch (error) {
       onNotify(error instanceof Error ? error.message : "Available leads could not be loaded.");
     } finally {
@@ -126,9 +170,25 @@ export function CampaignManagementView({ membership, onNotify }: { membership: M
     setAddingLeadId(lead.id);
     try {
       await setLeadCampaign(lead.external_id, managingLeads.id);
-      setCampaignLeads((current) => [{ ...lead, campaign_id: managingLeads.id }, ...current]);
-      setLeadCandidates((current) => current.filter((candidate) => candidate.id !== lead.id));
-      onNotify(`${lead.full_name} added to ${managingLeads.name}.`);
+      setCampaignLeadTotal((current) => current + 1);
+      setCampaignLeads((current) => campaignLeadPage === 1
+        ? [{ ...lead, campaign_id: managingLeads.id }, ...current].slice(0, campaignLeadPageSize)
+        : current);
+      const remainingCandidates = Math.max(0, candidateTotal - 1);
+      const lastCandidatePage = Math.max(1, Math.ceil(remainingCandidates / campaignLeadPageSize));
+      const nextCandidatePage = Math.min(candidatePage, lastCandidatePage);
+      setCandidateTotal(remainingCandidates);
+      setCandidatePage(nextCandidatePage);
+      try {
+        const result = await searchCampaignLeadCandidates(membership.organization_id, leadSearch, nextCandidatePage, campaignLeadPageSize);
+        setLeadCandidates(result.leads);
+        setCandidateTotal(result.totalCount);
+        onNotify(`${lead.full_name} added to ${managingLeads.name}.`);
+      } catch (error) {
+        setLeadCandidates((current) => current.filter((candidate) => candidate.id !== lead.id));
+        const detail = error instanceof Error ? ` ${error.message}` : "";
+        onNotify(`${lead.full_name} was added, but the available leads list could not be refreshed.${detail}`);
+      }
     } catch (error) {
       onNotify(error instanceof Error ? error.message : "Lead could not be added to this campaign.");
     } finally {
@@ -225,21 +285,23 @@ export function CampaignManagementView({ membership, onNotify }: { membership: M
           <button className="button secondary" disabled={searchingCandidates}>{searchingCandidates ? "Searching…" : "Search"}</button>
         </form>}
         <div className="campaign-lead-sections">
-          <section><h3>Leads in campaign <span>{campaignLeads.length}{campaignLeads.length === 100 ? "+" : ""}</span></h3>
+          <section><h3>Leads in campaign <span>{campaignLeadTotal}</span></h3>
             {loadingCampaignLeads ? <p className="muted" role="status">Loading campaign leads…</p>
               : campaignLeads.length ? <div className="campaign-lead-list">{campaignLeads.map((lead) => <article className="campaign-lead-row" key={lead.id}>
                 <div><strong>{lead.full_name}</strong><small>{[lead.phone, lead.company, lead.source].filter(Boolean).join(" · ") || "No contact details"}</small></div>
                 <span className={`status ${lead.status.replace(/_/g, "-")}`}>{lead.status.replace(/_/g, " ")}</span>
               </article>)}</div>
                 : <p className="muted">No leads are linked to this campaign yet.</p>}
+            {!loadingCampaignLeads && <CampaignPagination page={campaignLeadPage} pageSize={campaignLeadPageSize} totalCount={campaignLeadTotal} onPageChange={(page) => void changeCampaignLeadPage(page)} />}
           </section>
-          {isAdmin && <section><h3>Add an existing lead</h3>
+          {isAdmin && <section><h3>Add an existing lead <span>{candidateTotal}</span></h3>
             {searchingCandidates ? <p className="muted" role="status">Loading available leads…</p>
               : leadCandidates.length ? <div className="campaign-lead-list">{leadCandidates.map((lead) => <article className="campaign-lead-row" key={lead.id}>
                 <div><strong>{lead.full_name}</strong><small>{[lead.phone, lead.company, lead.source].filter(Boolean).join(" · ") || "No contact details"}</small></div>
                 <button className="button secondary" disabled={addingLeadId === lead.id} onClick={() => void addLead(lead)}>{addingLeadId === lead.id ? "Adding…" : "Add"}</button>
               </article>)}</div>
                 : <p className="muted">No unassigned leads match your search.</p>}
+            {!searchingCandidates && <CampaignPagination page={candidatePage} pageSize={campaignLeadPageSize} totalCount={candidateTotal} onPageChange={(page) => void changeCandidatePage(page)} />}
           </section>}
         </div>
       </section>
@@ -254,4 +316,22 @@ export function CampaignManagementView({ membership, onNotify }: { membership: M
       </section>
     </div>}
   </>;
+}
+
+function CampaignPagination({ page, pageSize, totalCount, onPageChange }: {
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  onPageChange: (page: number) => void;
+}) {
+  if (!totalCount) return null;
+  const totalPages = Math.ceil(totalCount / pageSize);
+  return <div className="campaign-pagination" aria-label="Lead pagination">
+    <span>{(page - 1) * pageSize + 1}-{Math.min(page * pageSize, totalCount)} of {totalCount}</span>
+    <div>
+      <button type="button" className="button secondary" disabled={page <= 1} onClick={() => onPageChange(page - 1)}><ChevronLeft size={14} /> Previous</button>
+      <span>Page {page} of {totalPages}</span>
+      <button type="button" className="button secondary" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>Next <ChevronRight size={14} /></button>
+    </div>
+  </div>;
 }

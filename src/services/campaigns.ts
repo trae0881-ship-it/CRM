@@ -83,29 +83,30 @@ export async function setLeadCampaign(externalId: string, campaignId: string | n
   if (error) throw error;
 }
 
-export async function listCampaignLeads(campaignId: string): Promise<CampaignLead[]> {
-  const { data, error } = await requireClient()
+export type CampaignLeadPage = { leads: CampaignLead[]; totalCount: number };
+
+export async function listCampaignLeads(campaignId: string, page = 1, pageSize = 10): Promise<CampaignLeadPage> {
+  const { data, count, error } = await requireClient()
     .from("leads")
-    .select("id,external_id,full_name,phone,company,source,status,campaign_id,created_at")
+    .select("id,external_id,full_name,phone,company,source,status,campaign_id,created_at", { count: "exact" })
     .eq("campaign_id", campaignId)
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
-    .limit(100);
+    .range((page - 1) * pageSize, page * pageSize - 1);
   if (error) throw error;
-  return (data ?? []) as CampaignLead[];
+  return { leads: (data ?? []) as CampaignLead[], totalCount: count ?? 0 };
 }
 
-export async function searchCampaignLeadCandidates(organizationId: string, search = ""): Promise<CampaignLead[]> {
+export async function searchCampaignLeadCandidates(organizationId: string, search = "", page = 1, pageSize = 10): Promise<CampaignLeadPage> {
   let query = requireClient()
     .from("leads")
-    .select("id,external_id,full_name,phone,company,source,status,campaign_id,created_at")
+    .select("id,external_id,full_name,phone,company,source,status,campaign_id,created_at", { count: "exact" })
     .eq("organization_id", organizationId)
     .is("campaign_id", null)
     .is("deleted_at", null)
-    .order("created_at", { ascending: false })
-    .limit(25);
+    .order("created_at", { ascending: false });
   if (search.trim()) query = query.or(buildLeadSearchFilter(search));
-  const { data, error } = await query;
+  const { data, count, error } = await query.range((page - 1) * pageSize, page * pageSize - 1);
   if (error) throw error;
-  return (data ?? []) as CampaignLead[];
+  return { leads: (data ?? []) as CampaignLead[], totalCount: count ?? 0 };
 }

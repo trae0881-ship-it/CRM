@@ -47,4 +47,8 @@ test("campaign page lists and adds existing leads and links campaign-scoped Goog
   assert.match(service, /listCampaignLeads/);
   assert.match(service, /searchCampaignLeadCandidates/);
   assert.match(service, /\.rpc\("set_lead_campaign"/);
+  assert.match(service, /\.range\(\(page - 1\) \* pageSize, page \* pageSize - 1\)/);
+  assert.match(service, /count: "exact"/);
+  assert.match(component, /campaign-pagination/);
+  assert.match(component, /Page \{page\} of \{totalPages\}/);
 });
