@@ -211,3 +211,22 @@ test("Google Sheets agency schema repair is additive and reloads PostgREST metad
   assert.match(migration, /notify pgrst, 'reload schema'/i);
   assert.doesNotMatch(migration, /\bdrop table\b|\btruncate\b/i);
 });
+
+test("campaign Google Sheets imports are tenant-bound and keep synced leads in their campaign", async () => {
+  const migration = await readFile(new URL("../supabase/migrations/20261121150000_campaign_google_sheet_links.sql", import.meta.url), "utf8");
+  const oauth = await readFile(new URL("../supabase/functions/google-sheets-oauth/index.ts", import.meta.url), "utf8");
+  const sync = await readFile(new URL("../supabase/functions/google-sheets-sync/index.ts", import.meta.url), "utf8");
+  const service = await readFile(new URL("../src/services/googleSheets.ts", import.meta.url), "utf8");
+  const view = await readFile(new URL("../src/components/GoogleSheetsView.tsx", import.meta.url), "utf8");
+  assert.match(migration, /add column if not exists campaign_id uuid references public\.campaigns\(id\)/);
+  assert.match(migration, /Google Sheet campaign must belong to the same organization/);
+  assert.match(oauth, /\.eq\("organization_id", source\.organization_id\)/);
+  assert.match(oauth, /campaign_id: campaignId/);
+  assert.match(sync, /\.eq\("organization_id", integration\.organization_id\)/);
+  assert.match(sync, /campaignId: integration\.campaign_id \?\? null/);
+  assert.match(sync, /patch\.campaign_id = integration\.campaign_id/);
+  assert.match(sync, /This lead already belongs to another campaign/);
+  assert.match(service, /campaign_id\?: string \| null/);
+  assert.match(view, /addGoogleSheetIntegration\(templateIntegrationId, agencyName, campaignId\)/);
+  assert.match(view, /integration\.campaign_id === campaignId/);
+});

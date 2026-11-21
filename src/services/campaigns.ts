@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { buildLeadSearchFilter } from "../lib/leadSearch.mjs";
 
 export type OrganizationCampaign = {
   id: string;
@@ -12,6 +13,17 @@ export type OrganizationCampaign = {
 };
 
 export type CampaignAccessRecord = { campaign_id: string; user_id: string };
+export type CampaignLead = {
+  id: string;
+  external_id: string;
+  full_name: string;
+  phone: string | null;
+  company: string | null;
+  source: string;
+  status: string;
+  campaign_id: string | null;
+  created_at: string;
+};
 
 const requireClient = () => {
   if (!supabase) throw new Error("Supabase is not configured.");
@@ -69,4 +81,31 @@ export async function setLeadCampaign(externalId: string, campaignId: string | n
     target_campaign_id: campaignId,
   });
   if (error) throw error;
+}
+
+export async function listCampaignLeads(campaignId: string): Promise<CampaignLead[]> {
+  const { data, error } = await requireClient()
+    .from("leads")
+    .select("id,external_id,full_name,phone,company,source,status,campaign_id,created_at")
+    .eq("campaign_id", campaignId)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return (data ?? []) as CampaignLead[];
+}
+
+export async function searchCampaignLeadCandidates(organizationId: string, search = ""): Promise<CampaignLead[]> {
+  let query = requireClient()
+    .from("leads")
+    .select("id,external_id,full_name,phone,company,source,status,campaign_id,created_at")
+    .eq("organization_id", organizationId)
+    .is("campaign_id", null)
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(25);
+  if (search.trim()) query = query.or(buildLeadSearchFilter(search));
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as CampaignLead[];
 }

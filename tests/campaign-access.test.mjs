@@ -37,3 +37,14 @@ test("campaign page supports admin creation and member access management", async
   assert.match(service, /rpc\("set_campaign_access"/);
   assert.match(service, /rpc\("set_lead_campaign"/);
 });
+
+test("campaign page lists and adds existing leads and links campaign-scoped Google Sheets", async () => {
+  const component = await readFile(path.join(root, "src/components/CampaignManagementView.tsx"), "utf8");
+  const service = await readFile(path.join(root, "src/services/campaigns.ts"), "utf8");
+  assert.match(component, /Add an existing lead/);
+  assert.match(component, /Google Sheet/);
+  assert.match(component, /GoogleSheetsView membership=\{membership\} campaignId=\{sheetsCampaign\.id\}/);
+  assert.match(service, /listCampaignLeads/);
+  assert.match(service, /searchCampaignLeadCandidates/);
+  assert.match(service, /\.rpc\("set_lead_campaign"/);
+});

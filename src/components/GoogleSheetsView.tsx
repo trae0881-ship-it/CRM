@@ -34,7 +34,13 @@ function formatRunErrors(value: unknown) {
   }).filter(Boolean).join(" · ") || "—";
 }
 
-export function GoogleSheetsView({ membership, onNotify }: { membership: Membership; onNotify: (message: string) => void }) {
+export function GoogleSheetsView({ membership, onNotify, campaignId, campaignName, onDataChanged }: {
+  membership: Membership;
+  onNotify: (message: string) => void;
+  campaignId?: string;
+  campaignName?: string;
+  onDataChanged?: () => Promise<void> | void;
+}) {
   const [integrations, setIntegrations] = useState<GoogleSheetIntegration[]>([]);
   const [runs, setRuns] = useState<Array<Record<string, unknown>>>([]);
   const [newAgencyName, setNewAgencyName] = useState("");
@@ -60,7 +66,8 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
       setTemplateIntegrationId((current) => loadedIntegrations.some((item) => item.id === current && item.status !== "disconnected")
         ? current
         : loadedIntegrations.find((item) => item.status !== "disconnected")?.id ?? "");
-      setSelectedAgency((current) => current === "all" || loadedIntegrations.some((item) => (item.agency_name?.trim() || "Unassigned").toLocaleLowerCase() === current) ? current : "all");
+      const campaignIntegrations = campaignId ? loadedIntegrations.filter((item) => item.campaign_id === campaignId) : loadedIntegrations;
+      setSelectedAgency((current) => current === "all" || campaignIntegrations.some((item) => (item.agency_name?.trim() || "Unassigned").toLocaleLowerCase() === current) ? current : "all");
     } catch (error) {
       onNotify(googleSheetsErrorMessage(error, "Google Sheets data could not be loaded."));
     }
@@ -86,7 +93,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
       if (popupRef.current && !popupRef.current.closed) popupRef.current.close();
       popupRef.current = null;
     };
-  }, [membership.organization_id]);
+  }, [campaignId, membership.organization_id]);
 
   const connect = async () => {
     if (!validOrganizationId) return onNotify("Your active organization could not be verified. Reload and sign in again before connecting Google Sheets.");
@@ -111,7 +118,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
     if (!templateIntegrationId) return onNotify("Connect a Google account before adding a sheet.");
     setBusy(true);
     try {
-      await addGoogleSheetIntegration(templateIntegrationId, agencyName);
+      await addGoogleSheetIntegration(templateIntegrationId, agencyName, campaignId);
       setNewAgencyName("");
       if (agencyName) setSelectedAgency(agencyName.trim().toLocaleLowerCase());
       await load();
@@ -136,7 +143,8 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
     const integration = integrations.find((item) => item.id === integrationId);
     return [integration?.agency_name, integration?.worksheet_name].filter(Boolean).join(" · ") || "Google Sheet";
   };
-  const agencies = Array.from(integrations.reduce((items, integration) => {
+  const campaignIntegrations = campaignId ? integrations.filter((integration) => integration.campaign_id === campaignId) : integrations;
+  const agencies = Array.from(campaignIntegrations.reduce((items, integration) => {
     const name = integration.agency_name?.trim() || "Unassigned";
     const key = name.toLocaleLowerCase();
     const current = items.get(key);
@@ -144,8 +152,8 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
     return items;
   }, new Map<string, { name: string; count: number }>()).entries());
   const visibleIntegrations = selectedAgency === "all"
-    ? integrations
-    : integrations.filter((integration) => (integration.agency_name?.trim() || "Unassigned").toLocaleLowerCase() === selectedAgency);
+    ? campaignIntegrations
+    : campaignIntegrations.filter((integration) => (integration.agency_name?.trim() || "Unassigned").toLocaleLowerCase() === selectedAgency);
   const accounts = Array.from(visibleIntegrations.reduce((items, integration) => {
     const email = integration.provider_account_email?.trim() || "";
     const key = email ? email.toLocaleLowerCase() : `integration:${integration.id}`;
@@ -158,8 +166,8 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
     <div className="card-header">
       <div>
         <p className="eyebrow">GOOGLE SHEETS</p>
-        <h2>Agency lead sheets</h2>
-        <p>Manage agency spreadsheets and their tabs from one place. Imported leads keep their agency attribution for reports.</p>
+        <h2>{campaignId ? `Google Sheets · ${campaignName || "Campaign"}` : "Agency lead sheets"}</h2>
+        <p>{campaignId ? "Sheets added here import their leads into this campaign. Existing leads already linked to another campaign are not moved." : "Manage agency spreadsheets and their tabs from one place. Imported leads keep their agency attribution for reports."}</p>
       </div>
       <button className="button primary" disabled={busy || !validOrganizationId || !canManage} onClick={() => void connect()}><Link2 size={16} /> {integrations.length ? "Connect another Google account" : "Connect Google account"}</button>
     </div>
@@ -167,8 +175,8 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
 
     <div className="agency-sheet-add">
       <div>
-        <h3>Add an agency</h3>
-        <p className="muted">Each agency gets its own spreadsheet source. You can add more tabs inside it.</p>
+        <h3>{campaignId ? "Add a campaign sheet" : "Add an agency"}</h3>
+        <p className="muted">{campaignId ? "Choose an authorized Google account, then add a sheet link for this campaign." : "Each agency gets its own spreadsheet source. You can add more tabs inside it."}</p>
       </div>
       <div className="inline-form">
         <label>Google account<select value={templateIntegrationId} onChange={(event) => setTemplateIntegrationId(event.target.value)} disabled={!integrations.some((item) => item.status !== "disconnected")}>
@@ -191,7 +199,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
         {accounts.map(({ email, integrations: accountIntegrations }) => <section className="agency-account-group" key={email ? email.toLocaleLowerCase() : accountIntegrations[0].id}>
           <div className="agency-account-heading">
             <div><p className="eyebrow">CONNECTED GOOGLE ACCOUNT</p><strong>{email || "Google account"}</strong><small>{accountIntegrations.length} agency sheet{accountIntegrations.length === 1 ? "" : "s"} in this view</small></div>
-            <button className="button secondary" disabled={busy || !canManage || accountIntegrations.every((item) => item.status === "disconnected")} onClick={() => void disconnectAccount(accountIntegrations[0].id)}><Unplug size={16} /> Disconnect account</button>
+            {!campaignId && <button className="button secondary" disabled={busy || !canManage || accountIntegrations.every((item) => item.status === "disconnected")} onClick={() => void disconnectAccount(accountIntegrations[0].id)}><Unplug size={16} /> Disconnect account</button>}
           </div>
           <div className="agency-account-sheets">
             {accountIntegrations.map((integration) => <GoogleSheetSource
@@ -200,6 +208,7 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
               busy={busy}
               onNotify={onNotify}
               onReload={load}
+              onDataChanged={onDataChanged}
               onAddTab={() => void addSheet(integration.agency_name ?? "")}
             />)}
           </div>
@@ -208,21 +217,22 @@ export function GoogleSheetsView({ membership, onNotify }: { membership: Members
       {!visibleIntegrations.length && <div className="agency-tab-empty">No sheet sources are configured for this agency yet.</div>}
     </>}
 
-    {runs.length > 0 && <div className="table-card agency-sync-history">
+    {runs.filter((run) => !campaignId || campaignIntegrations.some((integration) => integration.id === run.integration_id)).length > 0 && <div className="table-card agency-sync-history">
       <h3>Sync history</h3>
       <div className="table-scroll"><table><thead><tr><th>AGENCY / TAB</th><th>STARTED</th><th>STATUS</th><th>ROWS</th><th>FAILED</th><th>DETAILS</th></tr></thead><tbody>
-        {runs.map((run) => <tr key={String(run.id)}><td>{getIntegrationLabel(run.integration_id)}</td><td>{String(run.started_at)}</td><td>{String(run.status)}</td><td>{String(run.total_rows)}</td><td>{String(run.failed_rows)}</td><td>{formatRunErrors(run.errors)}</td></tr>)}
+        {runs.filter((run) => !campaignId || campaignIntegrations.some((integration) => integration.id === run.integration_id)).map((run) => <tr key={String(run.id)}><td>{getIntegrationLabel(run.integration_id)}</td><td>{String(run.started_at)}</td><td>{String(run.status)}</td><td>{String(run.total_rows)}</td><td>{String(run.failed_rows)}</td><td>{formatRunErrors(run.errors)}</td></tr>)}
       </tbody></table></div>
     </div>}
   </section>;
 }
 
-function GoogleSheetSource({ integration, busy, onNotify, onReload, onAddTab }: {
+function GoogleSheetSource({ integration, busy, onNotify, onReload, onAddTab, onDataChanged }: {
   integration: GoogleSheetIntegration;
   busy: boolean;
   onNotify: (message: string) => void;
   onReload: () => Promise<void>;
   onAddTab: () => void;
+  onDataChanged?: () => Promise<void> | void;
 }) {
   const isPending = integration.spreadsheet_id.startsWith("pending-selection");
   const [spreadsheetInput, setSpreadsheetInput] = useState(isPending ? "" : integration.spreadsheet_id);
@@ -311,6 +321,7 @@ function GoogleSheetSource({ integration, busy, onNotify, onReload, onAddTab }: 
       await saveSettings(spreadsheetInput, mappingToSave, worksheetName);
       const result = await syncGoogleSheet(integration.id, true);
       await onReload();
+      await onDataChanged?.();
       onNotify(formatSyncResult(result));
     } catch (error) {
       onNotify(googleSheetsErrorMessage(error, "Google Sheets import failed."));

@@ -90,6 +90,15 @@ Deno.serve(async (request) => {
       const { data: membership } = await db.from("organization_members").select("role").eq("organization_id", integration.organization_id).eq("user_id", user?.id).eq("is_active", true).single();
       if (!membership || !["company_owner", "organization_admin"].includes(membership.role)) return json({ error: "Google Sheets sync permission required" }, 403);
     }
+    if (integration.campaign_id) {
+      const { data: campaign, error: campaignError } = await db.from("campaigns")
+        .select("id")
+        .eq("id", integration.campaign_id)
+        .eq("organization_id", integration.organization_id)
+        .maybeSingle();
+      if (campaignError) throw campaignError;
+      if (!campaign) return json({ error: "The linked campaign no longer belongs to this organization" }, 409);
+    }
     if (!integration.token_ciphertext || integration.status === "disconnected") return json({ error: "Google account is disconnected" }, 409);
     if (integration.spreadsheet_id.startsWith("pending-selection")) return json({ error: "Select a spreadsheet before syncing" }, 409);
     if (action === "sync" && !integration.column_mapping?.full_name) return json({ error: "Full Name column mapping is required" }, 400);
@@ -203,12 +212,12 @@ Deno.serve(async (request) => {
         const phone = phoneHeader ? normalizePhone(record[phoneHeader]) : null;
         const email = emailHeader ? normalizeEmail(record[emailHeader]) : null;
         const rowKey = `${integration.spreadsheet_id}:${integration.worksheet_id || integration.worksheet_name}:${sourceIdHeader ? String(record[sourceIdHeader] || index) : `${email || ""}:${phone || ""}:${fullName.toLowerCase()}`}`;
-        const rowHash = await sha256(JSON.stringify({ record, visibleColumns, agencyName: integration.agency_name ?? "" }));
+        const rowHash = await sha256(JSON.stringify({ record, visibleColumns, agencyName: integration.agency_name ?? "", campaignId: integration.campaign_id ?? null }));
         const existingSource = await db.from("google_sheet_source_rows").select("id,lead_id,row_hash").eq("integration_id", integration.id).eq("source_row_key", rowKey).maybeSingle();
         if (existingSource.data?.row_hash === rowHash) { duplicateRows += 1; continue; }
-        let lead = existingSource.data?.lead_id ? (await db.from("leads").select("id,custom_fields").eq("id", existingSource.data.lead_id).eq("organization_id", integration.organization_id).single()).data : null;
+        let lead = existingSource.data?.lead_id ? (await db.from("leads").select("id,custom_fields,campaign_id").eq("id", existingSource.data.lead_id).eq("organization_id", integration.organization_id).single()).data : null;
         if (!lead && (email || phone)) {
-          let query = db.from("leads").select("id,custom_fields").eq("organization_id", integration.organization_id).is("deleted_at", null);
+          let query = db.from("leads").select("id,custom_fields,campaign_id").eq("organization_id", integration.organization_id).is("deleted_at", null);
           if (email) query = query.eq("email", email);
           else if (phone) query = query.eq("phone", phone);
           lead = (await query.maybeSingle()).data;
@@ -252,6 +261,12 @@ Deno.serve(async (request) => {
         if (stateHeader) patch.state = String(record[stateHeader] || "").trim() || null;
         if (sourceHeader) patch.source = String(record[sourceHeader] || "").trim() || "google_sheets";
         else if (!lead) patch.source = "google_sheets";
+        if (integration.campaign_id) {
+          if (lead?.campaign_id && lead.campaign_id !== integration.campaign_id) {
+            throw new Error("This lead already belongs to another campaign. Move it from the lead manager first.");
+          }
+          patch.campaign_id = integration.campaign_id;
+        }
         const managed = new Set((integration.crm_managed_fields ?? []) as string[]);
         if (lead) {
           const updatePatch = Object.fromEntries(Object.entries(patch).filter(([field]) => !managed.has(field)));

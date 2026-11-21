@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { ArrowUpRight, Plus, Target, Users, X } from "lucide-react";
-import { createOrganizationCampaign, listCampaignAccess, listOrganizationCampaigns, setCampaignAccess } from "../services/campaigns";
-import type { CampaignAccessRecord, OrganizationCampaign } from "../services/campaigns";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { ArrowUpRight, FileSpreadsheet, Plus, Search, Target, Users, X } from "lucide-react";
+import { createOrganizationCampaign, listCampaignAccess, listCampaignLeads, listOrganizationCampaigns, searchCampaignLeadCandidates, setCampaignAccess, setLeadCampaign } from "../services/campaigns";
+import type { CampaignAccessRecord, CampaignLead, OrganizationCampaign } from "../services/campaigns";
 import { listOrganizationMembers } from "../services/workspace";
 import type { Membership, OrganizationMember } from "../services/workspace";
+
+const GoogleSheetsView = lazy(() => import("./GoogleSheetsView").then((module) => ({ default: module.GoogleSheetsView })));
 
 export function CampaignManagementView({ membership, onNotify }: { membership: Membership; onNotify: (message: string) => void }) {
   const [campaigns, setCampaigns] = useState<OrganizationCampaign[]>([]);
@@ -13,6 +15,14 @@ export function CampaignManagementView({ membership, onNotify }: { membership: M
   const [saving, setSaving] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [editingAccess, setEditingAccess] = useState<OrganizationCampaign | null>(null);
+  const [managingLeads, setManagingLeads] = useState<OrganizationCampaign | null>(null);
+  const [sheetsCampaign, setSheetsCampaign] = useState<OrganizationCampaign | null>(null);
+  const [campaignLeads, setCampaignLeads] = useState<CampaignLead[]>([]);
+  const [leadCandidates, setLeadCandidates] = useState<CampaignLead[]>([]);
+  const [leadSearch, setLeadSearch] = useState("");
+  const [loadingCampaignLeads, setLoadingCampaignLeads] = useState(false);
+  const [searchingCandidates, setSearchingCandidates] = useState(false);
+  const [addingLeadId, setAddingLeadId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
@@ -66,6 +76,66 @@ export function CampaignManagementView({ membership, onNotify }: { membership: M
       : [...current, userId]);
   };
 
+  const openLeadManager = async (campaign: OrganizationCampaign) => {
+    setManagingLeads(campaign);
+    setLeadSearch("");
+    setLoadingCampaignLeads(true);
+    setSearchingCandidates(isAdmin);
+    try {
+      const [currentLeads, candidates] = await Promise.all([
+        listCampaignLeads(campaign.id),
+        isAdmin ? searchCampaignLeadCandidates(membership.organization_id) : Promise.resolve([]),
+      ]);
+      setCampaignLeads(currentLeads);
+      setLeadCandidates(candidates);
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Campaign leads could not be loaded.");
+    } finally {
+      setLoadingCampaignLeads(false);
+      setSearchingCandidates(false);
+    }
+  };
+
+  const refreshCampaignLeads = useCallback(async () => {
+    const campaign = managingLeads || sheetsCampaign;
+    if (!campaign) return;
+    setLoadingCampaignLeads(true);
+    try {
+      setCampaignLeads(await listCampaignLeads(campaign.id));
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Campaign leads could not be refreshed.");
+    } finally {
+      setLoadingCampaignLeads(false);
+    }
+  }, [managingLeads, onNotify, sheetsCampaign]);
+
+  const searchCandidates = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSearchingCandidates(true);
+    try {
+      setLeadCandidates(await searchCampaignLeadCandidates(membership.organization_id, leadSearch));
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Available leads could not be loaded.");
+    } finally {
+      setSearchingCandidates(false);
+    }
+  };
+
+  const addLead = async (lead: CampaignLead) => {
+    if (!managingLeads) return;
+    setAddingLeadId(lead.id);
+    try {
+      await setLeadCampaign(lead.external_id, managingLeads.id);
+      setCampaignLeads((current) => [{ ...lead, campaign_id: managingLeads.id }, ...current]);
+      setLeadCandidates((current) => current.filter((candidate) => candidate.id !== lead.id));
+      onNotify(`${lead.full_name} added to ${managingLeads.name}.`);
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "Lead could not be added to this campaign.");
+    } finally {
+      setAddingLeadId(null);
+    }
+  };
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSaving(true);
@@ -115,7 +185,11 @@ export function CampaignManagementView({ membership, onNotify }: { membership: M
               <Users size={15} />
               <span>{isAdmin ? names.length ? names.join(", ") : "No members assigned" : hasAccess ? "You have access" : "Access not assigned"}</span>
             </div>
-            {isAdmin && <button className="text-button campaign-link" onClick={() => openAccessEditor(campaign)}>Manage access <ArrowUpRight size={15} /></button>}
+            <div className="campaign-card-actions">
+              <button className="button secondary" onClick={() => void openLeadManager(campaign)}><Users size={15} /> Leads</button>
+              {isAdmin && <button className="button secondary" onClick={() => setSheetsCampaign(campaign)}><FileSpreadsheet size={15} /> Google Sheet</button>}
+              {isAdmin && <button className="text-button campaign-link" onClick={() => openAccessEditor(campaign)}>Manage access <ArrowUpRight size={15} /></button>}
+            </div>
           </article>;
         })}
       </div>
@@ -141,6 +215,43 @@ export function CampaignManagementView({ membership, onNotify }: { membership: M
         </fieldset>
         <div className="modal-actions"><button type="button" className="button secondary" onClick={closeModal}>Cancel</button><button className="button primary" disabled={saving} type="submit">{saving ? "Saving…" : editingAccess ? "Save access" : "Create campaign"}</button></div>
       </form>
+    </div>}
+
+    {managingLeads && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setManagingLeads(null)}>
+      <section className="modal campaign-leads-modal" role="dialog" aria-modal="true" aria-labelledby="campaign-leads-title">
+        <div className="modal-head"><div><p className="eyebrow">CAMPAIGN LEADS</p><h2 id="campaign-leads-title">{managingLeads.name}</h2><p className="muted">View leads in this campaign and add unassigned organization leads.</p></div><button type="button" className="icon-button" aria-label="Close campaign leads" onClick={() => setManagingLeads(null)}><X size={19} /></button></div>
+        {isAdmin && <form className="campaign-lead-search" onSubmit={(event) => void searchCandidates(event)}>
+          <label><Search size={16} /><input value={leadSearch} onChange={(event) => setLeadSearch(event.target.value)} placeholder="Search unassigned leads by name, phone or email" /></label>
+          <button className="button secondary" disabled={searchingCandidates}>{searchingCandidates ? "Searching…" : "Search"}</button>
+        </form>}
+        <div className="campaign-lead-sections">
+          <section><h3>Leads in campaign <span>{campaignLeads.length}{campaignLeads.length === 100 ? "+" : ""}</span></h3>
+            {loadingCampaignLeads ? <p className="muted" role="status">Loading campaign leads…</p>
+              : campaignLeads.length ? <div className="campaign-lead-list">{campaignLeads.map((lead) => <article className="campaign-lead-row" key={lead.id}>
+                <div><strong>{lead.full_name}</strong><small>{[lead.phone, lead.company, lead.source].filter(Boolean).join(" · ") || "No contact details"}</small></div>
+                <span className={`status ${lead.status.replace(/_/g, "-")}`}>{lead.status.replace(/_/g, " ")}</span>
+              </article>)}</div>
+                : <p className="muted">No leads are linked to this campaign yet.</p>}
+          </section>
+          {isAdmin && <section><h3>Add an existing lead</h3>
+            {searchingCandidates ? <p className="muted" role="status">Loading available leads…</p>
+              : leadCandidates.length ? <div className="campaign-lead-list">{leadCandidates.map((lead) => <article className="campaign-lead-row" key={lead.id}>
+                <div><strong>{lead.full_name}</strong><small>{[lead.phone, lead.company, lead.source].filter(Boolean).join(" · ") || "No contact details"}</small></div>
+                <button className="button secondary" disabled={addingLeadId === lead.id} onClick={() => void addLead(lead)}>{addingLeadId === lead.id ? "Adding…" : "Add"}</button>
+              </article>)}</div>
+                : <p className="muted">No unassigned leads match your search.</p>}
+          </section>}
+        </div>
+      </section>
+    </div>}
+
+    {sheetsCampaign && <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setSheetsCampaign(null)}>
+      <section className="modal campaign-sheets-modal" role="dialog" aria-modal="true" aria-labelledby="campaign-sheets-title">
+        <div className="modal-head"><div><p className="eyebrow">CAMPAIGN SOURCE</p><h2 id="campaign-sheets-title">Google Sheet · {sheetsCampaign.name}</h2><p className="muted">Add a sheet link and sync its rows directly into this campaign.</p></div><button type="button" className="icon-button" aria-label="Close campaign sheets" onClick={() => setSheetsCampaign(null)}><X size={19} /></button></div>
+        <Suspense fallback={<p className="muted" role="status">Loading Google Sheets…</p>}>
+          <GoogleSheetsView membership={membership} campaignId={sheetsCampaign.id} campaignName={sheetsCampaign.name} onNotify={onNotify} onDataChanged={refreshCampaignLeads} />
+        </Suspense>
+      </section>
     </div>}
   </>;
 }

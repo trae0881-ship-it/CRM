@@ -75,7 +75,7 @@ Deno.serve(async (request) => {
     if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
     const user = await userFromRequest(request);
     if (!user) return json({ error: "Authentication required" }, 401);
-    const body = await request.json().catch(() => null) as { action?: string; organizationId?: string; integrationId?: string; agencyName?: string } | null;
+    const body = await request.json().catch(() => null) as { action?: string; organizationId?: string; integrationId?: string; agencyName?: string; campaignId?: string } | null;
     const admin = getAdmin();
     if (body?.action === "start") {
       if (!body.organizationId || !organizationIdPattern.test(body.organizationId)) {
@@ -105,9 +105,21 @@ Deno.serve(async (request) => {
       }
       const agencyName = String(body.agencyName ?? "").trim();
       if (agencyName.length > 120) return json({ error: "Agency name must be 120 characters or fewer" }, 400);
+      const campaignId = String(body.campaignId ?? "").trim() || null;
+      if (campaignId) {
+        if (!organizationIdPattern.test(campaignId)) return json({ error: "Campaign ID is invalid" }, 400);
+        const { data: campaign, error: campaignError } = await admin.from("campaigns")
+          .select("id")
+          .eq("id", campaignId)
+          .eq("organization_id", source.organization_id)
+          .maybeSingle();
+        if (campaignError) return json({ error: "Campaign could not be verified" }, 500);
+        if (!campaign) return json({ error: "Campaign does not belong to this organization" }, 404);
+      }
       const { data: created, error: createError } = await admin.from("google_sheet_integrations").insert({
         organization_id: source.organization_id,
         created_by: user.id,
+        campaign_id: campaignId,
         provider_account_email: source.provider_account_email,
         agency_name: agencyName || null,
         spreadsheet_id: `pending-selection:${crypto.randomUUID()}`,

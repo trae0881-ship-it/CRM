@@ -17,7 +17,7 @@ The OAuth callback URI is derived from the server-side `SUPABASE_URL`. Do not co
 
 ## First-time setup
 
-1. Apply all existing database migrations, including `20261120162000_google_sheet_agency_sources.sql`, in the intended Supabase project. Do not recreate the integration tables.
+1. Apply all existing database migrations, including `20261120162000_google_sheet_agency_sources.sql` and `20261121150000_campaign_google_sheet_links.sql`, in the intended Supabase project. Do not recreate the integration tables.
 2. In Google Cloud Console, enable the Google Sheets API, configure the OAuth consent screen, and create a Web application OAuth client. Add the Google account used for testing as a test user while the consent screen is in testing.
 3. Register the exact callback URL `https://<project-ref>.supabase.co/functions/v1/google-sheets-oauth` as an authorized redirect URI on the Google OAuth Web client. The function derives this URI from server-side `SUPABASE_URL`; it does not redirect to `crm.adometa.in` or an organization route.
 4. Configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_SHEETS_TOKEN_ENCRYPTION_KEY` as Supabase Edge Function secrets. Keep the client secret and encryption key server-side; never add them to frontend environment variables. `GOOGLE_SHEETS_SYNC_CRON_SECRET` is optional unless a trusted scheduler is configured.
@@ -33,6 +33,7 @@ For OAuth apps used outside their test users, Google may require consent-screen 
 3. Use **Preview tab** to check the selected tab's columns. Select which extra fields to show on leads, then choose **Import leads**.
 4. Use **Add another tab** to register another tab from the same spreadsheet. Use **Add agency spreadsheet** for a different agency spreadsheet; each source has its own link, tab, mapping, and sync history.
 5. Common contact headers such as `full_name`, `phone_number`, and `email` map to CRM fields. Other source columns are preserved on the lead; agency attribution is recorded for individual agency reports.
+6. To import directly into a campaign, open Campaigns, choose **Google Sheet** on the campaign, and add the spreadsheet there. Syncs from that sheet keep new leads linked to the campaign; existing leads already linked to another campaign are reported as row errors rather than moved.
 6. In Reports, choose an agency and date range to view or export an individual report as CSV, XLSX, or PDF. If the agency name changes, run the source sync again to refresh the report association.
 
 The sheet must be accessible to the authorized Google account. Import results and row errors are shown in the integration panel; a successful OAuth connection alone does not import data.
