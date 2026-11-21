@@ -95,13 +95,14 @@ export async function createLead(input: CreateLeadInput): Promise<LeadRecord> {
   if (userError) throw userError;
   const { data: membership, error: membershipError } = await client.from("organization_members").select("organization_id,role").eq("user_id", userData.user.id).eq("is_active", true).limit(1).single();
   if (membershipError) throw membershipError;
+  let assignedRole: string | null = null;
   if (input.assigned_to) {
     if (!["company_owner", "organization_admin", "manager"].includes(membership.role)) {
       throw new Error("Only organization admins and managers can assign leads during creation.");
     }
     const { data: assignee, error: assigneeError } = await client
       .from("organization_members")
-      .select("user_id")
+      .select("user_id,role")
       .eq("organization_id", membership.organization_id)
       .eq("user_id", input.assigned_to)
       .eq("is_active", true)
@@ -109,6 +110,27 @@ export async function createLead(input: CreateLeadInput): Promise<LeadRecord> {
       .maybeSingle();
     if (assigneeError) throw assigneeError;
     if (!assignee) throw new Error("Select an active salesperson from this organization.");
+    assignedRole = assignee.role;
+  }
+  if (input.campaign_id) {
+    const { data: campaign, error: campaignError } = await client
+      .from("campaigns")
+      .select("id")
+      .eq("organization_id", membership.organization_id)
+      .eq("id", input.campaign_id)
+      .maybeSingle();
+    if (campaignError) throw campaignError;
+    if (!campaign) throw new Error("Select a campaign you have access to in this organization.");
+    if (input.assigned_to && assignedRole !== "company_owner" && assignedRole !== "organization_admin") {
+      const { data: campaignMember, error: campaignMemberError } = await client
+        .from("campaign_members")
+        .select("user_id")
+        .eq("campaign_id", input.campaign_id)
+        .eq("user_id", input.assigned_to)
+        .maybeSingle();
+      if (campaignMemberError) throw campaignMemberError;
+      if (!campaignMember) throw new Error("Grant the assignee access to this campaign before assigning the lead.");
+    }
   }
   const { data, error } = await client.from("leads").insert({ ...input, organization_id: membership.organization_id }).select("*").single();
   if (error) throw error;

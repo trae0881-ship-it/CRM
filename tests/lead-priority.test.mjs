@@ -28,3 +28,12 @@ test("calling queue orders urgency before normal leads", () => {
   assert.equal(result[0].id, "lead-2");
 });
 
+test("calling queue puts booked leads before new leads, even if a new lead has an overdue follow-up", () => {
+  const result = priorityModule.orderCallingQueue([
+    { ...base, id: "new-lead", nextFollowUpAt: "2026-11-01T10:00:00.000Z" },
+    { ...base, id: "booked-lead", bookingStatus: "booked" },
+  ], new Date("2026-11-02T10:00:00.000Z"));
+  assert.equal(result[0].id, "booked-lead");
+  assert.equal(result[1].id, "new-lead");
+});
+

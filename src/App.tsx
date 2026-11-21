@@ -12,9 +12,10 @@ import { getLeadDateBounds } from "./lib/leadDateFilter.mjs";
 import type { LeadDateFilter } from "./lib/leadDateFilter.mjs";
 import { createLead, deleteLead, getLeadByExternalId, getOrganizationDuplicateLeads, getOrganizationLeadTrend, listLeadTimeline, listOrganizationLeadActivity, listOrganizationSalespeople, listLeadsPage, shareLead, transferLead, updateLeadStatus } from "./services/leads";
 import type { DuplicateLeadPreview, DuplicateLeadSummary, LeadTrendPoint, OrganizationLeadActivity } from "./services/leads";
-import { listOrganizationCampaigns, setLeadCampaign } from "./services/campaigns";
-import type { OrganizationCampaign } from "./services/campaigns";
+import { listCampaignAccess, listOrganizationCampaigns, setLeadCampaign } from "./services/campaigns";
+import type { CampaignAccessRecord, OrganizationCampaign } from "./services/campaigns";
 import { saveCall, skipLead } from "./services/calling";
+import { orderCallingQueue } from "./lib/leadPriority";
 import { personalWhatsAppUrl, recordWhatsAppOpened, renderWhatsAppTemplate } from "./services/whatsapp";
 import { requestPasswordReset, signIn, signOut, signUp, updatePassword } from "./services/auth";
 import type { LeadEvent, LeadRecord, LeadStatus } from "./types/database";
@@ -42,7 +43,7 @@ const LicenseRegisterView = lazy(() => import("./components/GrowthToolsView").th
 const AutomationView = lazy(() => import("./components/AutomationView").then((module) => ({ default: module.AutomationView })));
 const Customer360View = lazy(() => import("./components/SalesOperationsView").then((module) => ({ default: module.Customer360View })));
 const SalesPipelineView = lazy(() => import("./components/SalesOperationsView").then((module) => ({ default: module.SalesPipelineView })));
-import { countUnreadNotifications } from "./services/operations";
+import { countUnreadNotifications, listBookings } from "./services/operations";
 import { ProfileMenu } from "./components/ProfileMenu";
 import { OrganizationAdminControls } from "./components/OrganizationAdminControls";
 import { LeadCsvImportModal } from "./components/LeadCsvImportModal";
@@ -135,6 +136,8 @@ function App() {
   const [organizationProfile, setOrganizationProfile] = useState<OrganizationProfile | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [campaignOptions, setCampaignOptions] = useState<OrganizationCampaign[]>([]);
+  const [campaignAccess, setCampaignAccess] = useState<CampaignAccessRecord[]>([]);
+  const [newLeadCampaignId, setNewLeadCampaignId] = useState("");
   const [selectedLead, setSelectedLead] = useState<LeadRecord | null>(null);
   const [timeline, setTimeline] = useState<LeadEvent[]>([]);
   const [salespeople, setSalespeople] = useState<Array<{ user_id: string; role: string; profiles: { full_name: string } | null }>>([]);
@@ -432,11 +435,16 @@ function App() {
   useEffect(() => {
     if (!supabase || !membership || (view !== "Leads" && !showLeadForm && !selectedLead)) {
       setCampaignOptions([]);
+      setCampaignAccess([]);
       return;
     }
     let active = true;
-    void listOrganizationCampaigns(membership.organization_id).then((campaigns) => {
-      if (active) setCampaignOptions(campaigns);
+    void listOrganizationCampaigns(membership.organization_id).then(async (campaigns) => {
+      const access = await listCampaignAccess(campaigns.map((campaign) => campaign.id));
+      if (active) {
+        setCampaignOptions(campaigns);
+        setCampaignAccess(access);
+      }
     }).catch((error) => {
       if (active) notify(error instanceof Error ? error.message : "Campaigns could not be loaded.");
     });
@@ -640,6 +648,7 @@ function App() {
       source: "Manual", status: "New", score: 50, owner: "—", date: "Just now", color: "#e8e4ff",
     }, ...current]);
     setShowLeadForm(false);
+    setNewLeadCampaignId("");
     notify("Lead created successfully");
   };
 
@@ -680,6 +689,7 @@ function App() {
       setOperationLeads((current) => current.map((lead) => lead.external_id === externalId ? { ...lead, campaign_id: campaignId } : lead));
       setLeads((current) => current.map((lead) => lead.id === externalId ? { ...lead, campaignId } : lead));
       setSelectedLead((current) => current?.external_id === externalId ? { ...current, campaign_id: campaignId } : current);
+      setLeadImportRefresh((current) => current + 1);
       notify("Lead campaign updated.");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Lead campaign could not be updated.");
@@ -844,6 +854,7 @@ function App() {
             }}
           />}
           {view === "Campaigns" && membership && <CampaignManagementView membership={membership} onNotify={notify} />}
+          {view === "Campaigns" && !membership && <ModulePending eyebrow="CAMPAIGNS" title="Campaign workspace required" description="Sign in to an organization workspace to create campaigns and manage campaign-specific lead access." icon={<Target size={24} />} />}
           {view === "Follow-ups" && (membership ? <FollowUpsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FOLLOW-UP QUEUE" title="Follow-ups" description="An authenticated organization membership is required." icon={<ClipboardList size={24} />} />)}
           {view === "Calling" && <CallingWorkspace leads={filteredLeads} membership={membership} hasMore={Boolean(supabase) && operationLeads.length < totalLeadCount} isLoadingMore={isLoadingMoreLeads} onLoadMore={loadMoreLeads} onNotify={notify} />}
           {view === "Site Visits" && (membership ? <SiteVisitsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FIELD WORK" title="Site visits" description="An authenticated organization membership is required." icon={<CalendarDays size={24} />} />)}
@@ -858,15 +869,15 @@ function App() {
           </Suspense>
         </div>
       </main>
-      {showLeadForm && <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setShowLeadForm(false)}>
+      {showLeadForm && <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) { setShowLeadForm(false); setNewLeadCampaignId(""); } }}>
         <form className="modal" onSubmit={addLead}>
-          <div className="modal-head"><div><p className="eyebrow">NEW RECORD</p><h2>Create a lead</h2></div><button type="button" className="icon-button" onClick={() => setShowLeadForm(false)}><X size={19} /></button></div>
+          <div className="modal-head"><div><p className="eyebrow">NEW RECORD</p><h2>Create a lead</h2></div><button type="button" className="icon-button" onClick={() => { setShowLeadForm(false); setNewLeadCampaignId(""); }}><X size={19} /></button></div>
           <label>Full name<input name="name" required placeholder="e.g. Rohan Mehta" autoFocus /></label>
           <label>Company<input name="company" placeholder="e.g. Acme Pvt. Ltd." /></label>
           <label>Phone number<input name="phone" type="tel" placeholder="+91 98765 43210" /></label>
-          {campaignOptions.length > 0 && <label>Campaign<select name="campaign_id" defaultValue=""><option value="">No campaign</option>{campaignOptions.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</select></label>}
-          {membership && ["company_owner", "organization_admin", "manager"].includes(membership.role) && <label>Assign to<select name="assigned_to" defaultValue=""><option value="">Leave unassigned</option>{salespeople.map((person) => <option key={person.user_id} value={person.user_id}>{person.profiles?.full_name || person.user_id.slice(0, 8)}</option>)}</select></label>}
-          <div className="modal-actions"><button type="button" className="button secondary" onClick={() => setShowLeadForm(false)}>Cancel</button><button className="button primary" type="submit">Create lead</button></div>
+          {campaignOptions.length > 0 && <label>Campaign<select name="campaign_id" value={newLeadCampaignId} onChange={(event) => setNewLeadCampaignId(event.target.value)}><option value="">No campaign</option>{campaignOptions.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</select></label>}
+          {membership && ["company_owner", "organization_admin", "manager"].includes(membership.role) && <label>Assign to<select name="assigned_to" defaultValue=""><option value="">Leave unassigned</option>{salespeople.filter((person) => !newLeadCampaignId || ["company_owner", "organization_admin"].includes(person.role) || campaignAccess.some((record) => record.campaign_id === newLeadCampaignId && record.user_id === person.user_id)).map((person) => <option key={person.user_id} value={person.user_id}>{person.profiles?.full_name || person.user_id.slice(0, 8)}</option>)}</select></label>}
+          <div className="modal-actions"><button type="button" className="button secondary" onClick={() => { setShowLeadForm(false); setNewLeadCampaignId(""); }}>Cancel</button><button className="button primary" type="submit">Create lead</button></div>
         </form>
       </div>}
       {showLeadImport && membership && <LeadCsvImportModal organizationId={membership.organization_id} onClose={() => setShowLeadImport(false)} onImported={(result) => {
@@ -874,7 +885,7 @@ function App() {
         if (result.imported) setLeadImportRefresh((current) => current + 1);
         notify(`${result.imported} leads imported; ${result.duplicates} existing duplicates and ${result.invalidRows} invalid rows skipped.${result.error ? ` ${result.error}` : ""}`);
       }} onNotify={notify} />}
-      {selectedLead && <LeadDetails lead={selectedLead} events={timeline} salespeople={salespeople} campaigns={campaignOptions} initialMode={leadDetailsMode} canDelete={membership?.role === "company_owner" || membership?.role === "organization_admin"} onClose={() => setSelectedLead(null)} onDelete={removeLead} onNotify={notify} onRefresh={async () => setTimeline(await listLeadTimeline(selectedLead.id))} />}
+      {selectedLead && <LeadDetails lead={selectedLead} events={timeline} salespeople={salespeople} campaigns={campaignOptions} campaignAccess={campaignAccess} initialMode={leadDetailsMode} canDelete={membership?.role === "company_owner" || membership?.role === "organization_admin"} onClose={() => setSelectedLead(null)} onDelete={removeLead} onNotify={notify} onRefresh={async () => setTimeline(await listLeadTimeline(selectedLead.id))} />}
       {toast && <div className="toast"><Check size={17} />{toast}</div>}
     </div>
   )}</DashboardLayout></ProtectedRoute>;
@@ -886,7 +897,7 @@ function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; 
 
 function toUiLead(record: LeadRecord): Lead {
   const statusMap: Record<LeadStatus, Status> = { new: "New", contacted: "Contacted", qualified: "Qualified", follow_up: "Follow-up", won: "Won", lost: "Follow-up" };
-  return { id: record.external_id, dbId: record.id, assignedTo: record.assigned_to, phone: record.phone, name: record.full_name, company: record.company || "New account", source: record.source, status: statusMap[record.status], score: record.score, owner: record.assigned_to ? "Assigned" : "Unassigned", date: new Date(record.created_at).toLocaleString(), createdAt: record.created_at, color: "#e1f4ec" };
+  return { id: record.external_id, dbId: record.id, assignedTo: record.assigned_to, campaignId: record.campaign_id, phone: record.phone, name: record.full_name, company: record.company || "New account", source: record.source, status: statusMap[record.status], score: record.score, owner: record.assigned_to ? "Assigned" : "Unassigned", date: new Date(record.created_at).toLocaleString(), createdAt: record.created_at, color: "#e1f4ec" };
 }
 
 function ModulePending({ eyebrow, title, description, icon }: { eyebrow: string; title: string; description: string; icon: React.ReactNode }) {
@@ -1194,12 +1205,98 @@ function LeadsView({ leads, totalCount, isLoading, isSearchPending, isLoadingMor
   onStatusChange: (id: string, status: Status) => void;
 }) {
   const isRefreshing = isLoading || isSearchPending;
-  return <><PageHeader eyebrow="LEAD MANAGEMENT" title="Leads" description={isRefreshing && leads.length ? "Updating results; the previous result set remains visible." : `Showing ${leads.length} of ${totalCount} matching authorized leads.`} action={<div className="page-actions">{canImport && <button className="button secondary" onClick={onImport}><Upload size={16} /> Import CSV</button>}<button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} /><div className="toolbar"><div className="filter-search"><Search size={17} /><input aria-label="Search leads by name, email, phone, or lead ID" placeholder="Search by name or phone number..." value={query} onChange={(event) => onQueryChange(event.target.value)} /></div><label className="lead-filter-control"><Filter size={16} /><span>Lead menu</span><select aria-label="Filter leads by age or date" value={dateFilter} onChange={(event) => onDateFilterChange(event.target.value as LeadDateFilter)}><option value="all">All leads</option><option value="new">New leads · last 7 days</option><option value="old">Old leads · over 7 days</option><option value="custom">Custom date range</option></select></label>{dateFilter === "custom" && <div className="lead-date-range"><label>From<input aria-label="Start date" type="date" value={startDate} max={endDate || undefined} onChange={(event) => onStartDateChange(event.target.value)} /></label><label>To<input aria-label="End date" type="date" value={endDate} min={startDate || undefined} onChange={(event) => onEndDateChange(event.target.value)} /></label></div>}{dateFilterError && <p className="lead-filter-error" role="alert">{dateFilterError}</p>}</div><section className="card table-card">{isLoading && !leads.length ? <div className="route-loading" role="status">Loading leads…</div>   : <LeadTable leads={leads} salespeople={salespeople} onOpen={onOpen} onTransfer={canTrack ? onTransfer : undefined} onDelete={onDelete} canDelete={canDelete} onStatusChange={onStatusChange} />}{hasMore && <div className="lead-pagination"><button className="button secondary" disabled={isLoadingMore} onClick={onLoadMore}>{isLoadingMore ? "Loading…" : `Load more (${totalCount - leads.length} remaining)`}</button></div>}</section>{canTrack && <section className="card organization-track-record"><div className="card-header"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Every lead track record</h2><p>Recent creation, ownership, status, call, visit and booking activity across the organization.</p></div><span className="pending-pill">{isLoadingActivity ? "Loading…" : `${activity.length} recent events`}</span></div>{isLoadingActivity ? <p className="muted" role="status">Loading lead activity…</p> : activity.length ? <div className="organization-track-list">{activity.map((event) => { const details = formatLeadEvent(event, salespeople); return <button className="organization-track-row" key={event.id} onClick={() => event.lead_external_id && onOpen(event.lead_external_id)}><span className="organization-track-dot" /><span className="organization-track-main"><strong>{event.lead_name}</strong><span>{details.title}</span>{details.summary && <small>{details.summary}</small>}</span><span className="organization-track-meta"><small>By {details.actor}</small><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time></span><ArrowUpRight size={15} /></button>; })}</div> : <div className="empty-state"><ClipboardList size={24} /><strong>No lead activity recorded</strong><p>Lead actions will appear here as they happen.</p></div>}</section>}</>;
+  return <>
+    <PageHeader
+      eyebrow="LEAD MANAGEMENT"
+      title="Leads"
+      description={isRefreshing && leads.length ? "Updating results; the previous result set remains visible." : `Showing ${leads.length} of ${totalCount} matching authorized leads.`}
+      action={<div className="page-actions">
+        {canImport && <button className="button secondary" onClick={onImport}><Upload size={16} /> Import CSV</button>}
+        <button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button>
+      </div>}
+    />
+    <div className="toolbar">
+      <div className="filter-search"><Search size={17} /><input aria-label="Search leads by name, email, phone, or lead ID" placeholder="Search by name or phone number..." value={query} onChange={(event) => onQueryChange(event.target.value)} /></div>
+      <label className="lead-filter-control"><Filter size={16} /><span>Lead menu</span><select aria-label="Filter leads by age or date" value={dateFilter} onChange={(event) => onDateFilterChange(event.target.value as LeadDateFilter)}>
+        <option value="all">All leads</option><option value="new">New leads · last 7 days</option><option value="old">Old leads · over 7 days</option><option value="custom">Custom date range</option>
+      </select></label>
+      {dateFilter === "custom" && <div className="lead-date-range">
+        <label>From<input aria-label="Start date" type="date" value={startDate} max={endDate || undefined} onChange={(event) => onStartDateChange(event.target.value)} /></label>
+        <label>To<input aria-label="End date" type="date" value={endDate} min={startDate || undefined} onChange={(event) => onEndDateChange(event.target.value)} /></label>
+      </div>}
+      {dateFilterError && <p className="lead-filter-error" role="alert">{dateFilterError}</p>}
+    </div>
+    <section className="card table-card">
+      {isLoading && !leads.length ? <div className="route-loading" role="status">Loading leads…</div> : <LeadTable
+        leads={leads}
+        salespeople={salespeople}
+        campaigns={campaigns}
+        canManageCampaigns={canManageCampaigns}
+        onCampaignChange={onCampaignChange}
+        onOpen={onOpen}
+        onTransfer={canTrack ? onTransfer : undefined}
+        onDelete={onDelete}
+        canDelete={canDelete}
+        onStatusChange={onStatusChange}
+      />}
+      {hasMore && <div className="lead-pagination"><button className="button secondary" disabled={isLoadingMore} onClick={onLoadMore}>{isLoadingMore ? "Loading…" : `Load more (${totalCount - leads.length} remaining)`}</button></div>}
+    </section>
+    {canTrack && <section className="card organization-track-record">
+      <div className="card-header">
+        <div><p className="eyebrow">AUDIT TRAIL</p><h2>Every lead track record</h2><p>Recent creation, ownership, status, call, visit and booking activity across the organization.</p></div>
+        <span className="pending-pill">{isLoadingActivity ? "Loading…" : `${activity.length} recent events`}</span>
+      </div>
+      {isLoadingActivity ? <p className="muted" role="status">Loading lead activity…</p> : activity.length
+        ? <div className="organization-track-list">{activity.map((event) => {
+          const details = formatLeadEvent(event, salespeople);
+          return <button className="organization-track-row" key={event.id} onClick={() => event.lead_external_id && onOpen(event.lead_external_id)}>
+            <span className="organization-track-dot" />
+            <span className="organization-track-main"><strong>{event.lead_name}</strong><span>{details.title}</span>{details.summary && <small>{details.summary}</small>}</span>
+            <span className="organization-track-meta"><small>By {details.actor}</small><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time></span>
+            <ArrowUpRight size={15} />
+          </button>;
+        })}</div>
+        : <div className="empty-state"><ClipboardList size={24} /><strong>No lead activity recorded</strong><p>Lead actions will appear here as they happen.</p></div>}
+    </section>}
+  </>;
 }
 
-function LeadTable({ leads, compact = false, salespeople = [], onOpen, onTransfer, onDelete, canDelete = false, onStatusChange }: { leads: Lead[]; compact?: boolean; salespeople?: Array<{ user_id: string; profiles: { full_name: string } | null }>; onOpen?: (id: string) => void; onTransfer?: (id: string) => void; onDelete?: (id: string) => void; canDelete?: boolean; onStatusChange?: (id: string, status: Status) => void }) {
+function LeadTable({ leads, compact = false, salespeople = [], campaigns = [], canManageCampaigns = false, onCampaignChange, onOpen, onTransfer, onDelete, canDelete = false, onStatusChange }: {
+  leads: Lead[];
+  compact?: boolean;
+  salespeople?: Array<{ user_id: string; profiles: { full_name: string } | null }>;
+  campaigns?: OrganizationCampaign[];
+  canManageCampaigns?: boolean;
+  onCampaignChange?: (externalId: string, campaignId: string | null) => void;
+  onOpen?: (id: string) => void;
+  onTransfer?: (id: string) => void;
+  onDelete?: (id: string) => void;
+  canDelete?: boolean;
+  onStatusChange?: (id: string, status: Status) => void;
+}) {
   const ownerName = (lead: Lead) => lead.assignedTo ? salespeople.find((person) => person.user_id === lead.assignedTo)?.profiles?.full_name || "Assigned" : "Unassigned";
-  return <div className="table-scroll"><table><thead><tr><th>LEAD</th><th>SOURCE</th><th>STATUS</th><th>LEAD SCORE</th><th>ASSIGNED TO</th><th>ARRIVED</th><th /></tr></thead><tbody>{leads.map((lead) => <tr key={lead.id}><td><button className="lead-cell lead-link" onClick={() => onOpen?.(lead.id)}><div className="lead-avatar" style={{ background: lead.color }}>{lead.name.split(" ").map((n) => n[0]).join("")}</div><div><strong>{lead.name}</strong><small>{lead.company} · {lead.id}</small></div></button></td><td>{lead.source}</td><td>{onStatusChange ? <select className={`status-select ${lead.status.toLowerCase().replace("-", "")}`} value={lead.status} onChange={(e) => onStatusChange(lead.id, e.target.value as Status)}>{(["New", "Contacted", "Qualified", "Follow-up", "Won"] as Status[]).map((status) => <option key={status}>{status}</option>)}</select> : <span className={`status ${lead.status.toLowerCase().replace("-", "")}`}>{lead.status}</span>}</td><td><div className="score"><span className="score-bar"><i style={{ width: `${lead.score}%` }} /></span><strong>{lead.score}</strong></div></td><td><span className={`owner ${lead.assignedTo ? "" : "owner-unassigned"}`}>{ownerName(lead)}</span></td><td className="date-cell"><time dateTime={lead.createdAt}>{lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : lead.date}<small>{lead.createdAt ? new Date(lead.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</small></time></td><td><div className="page-actions">{onTransfer && <button className="button secondary" aria-label={`${lead.assignedTo ? "Reassign" : "Assign"} ${lead.name}`} onClick={() => onTransfer(lead.id)}>{lead.assignedTo ? "Reassign" : "Assign"}</button>}{canDelete && onDelete && <button className="icon-button danger-icon" aria-label={`Delete ${lead.name}`} title="Delete lead" onClick={() => onDelete(lead.id)}><Trash2 size={16} /></button>}<button className="icon-button" aria-label={`Open ${lead.name}`} onClick={() => onOpen?.(lead.id)}><MoreHorizontal size={17} /></button></div></td></tr>)}</tbody></table>{!leads.length && <div className="empty-state"><Search size={24} /><strong>No leads found</strong><p>Try a different search term.</p></div>}{compact && <div className="table-foot">Showing {leads.length} lead{leads.length === 1 ? "" : "s"}</div>}</div>;
+  const campaignName = (lead: Lead) => campaigns.find((campaign) => campaign.id === lead.campaignId)?.name || (lead.campaignId ? "Other campaign" : "—");
+  return <div className="table-scroll">
+    <table><thead><tr><th>LEAD</th><th>SOURCE</th><th>STATUS</th><th>LEAD SCORE</th><th>ASSIGNED TO</th><th>CAMPAIGN</th><th>ARRIVED</th><th /></tr></thead>
+      <tbody>{leads.map((lead) => <tr key={lead.id}>
+        <td><button className="lead-cell lead-link" onClick={() => onOpen?.(lead.id)}><div className="lead-avatar" style={{ background: lead.color }}>{lead.name.split(" ").map((n) => n[0]).join("")}</div><div><strong>{lead.name}</strong><small>{lead.company} · {lead.id}</small></div></button></td>
+        <td>{lead.source}</td>
+        <td>{onStatusChange ? <select className={`status-select ${lead.status.toLowerCase().replace("-", "")}`} value={lead.status} onChange={(event) => onStatusChange(lead.id, event.target.value as Status)}>{(["New", "Contacted", "Qualified", "Follow-up", "Won"] as Status[]).map((status) => <option key={status}>{status}</option>)}</select> : <span className={`status ${lead.status.toLowerCase().replace("-", "")}`}>{lead.status}</span>}</td>
+        <td><div className="score"><span className="score-bar"><i style={{ width: `${lead.score}%` }} /></span><strong>{lead.score}</strong></div></td>
+        <td><span className={`owner ${lead.assignedTo ? "" : "owner-unassigned"}`}>{ownerName(lead)}</span></td>
+        <td>{canManageCampaigns && onCampaignChange && campaigns.length > 0
+          ? <select aria-label={`Campaign for ${lead.name}`} value={lead.campaignId || ""} onChange={(event) => onCampaignChange(lead.id, event.target.value || null)}>
+            <option value="">No campaign</option>{campaigns.map((campaign) => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}
+          </select>
+          : <span>{campaignName(lead)}</span>}
+        </td>
+        <td className="date-cell"><time dateTime={lead.createdAt}>{lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : lead.date}<small>{lead.createdAt ? new Date(lead.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</small></time></td>
+        <td><div className="page-actions">{onTransfer && <button className="button secondary" aria-label={`${lead.assignedTo ? "Reassign" : "Assign"} ${lead.name}`} onClick={() => onTransfer(lead.id)}>{lead.assignedTo ? "Reassign" : "Assign"}</button>}{canDelete && onDelete && <button className="icon-button danger-icon" aria-label={`Delete ${lead.name}`} title="Delete lead" onClick={() => onDelete(lead.id)}><Trash2 size={16} /></button>}<button className="icon-button" aria-label={`Open ${lead.name}`} onClick={() => onOpen?.(lead.id)}><MoreHorizontal size={17} /></button></div></td>
+      </tr>)}</tbody>
+    </table>
+    {!leads.length && <div className="empty-state"><Search size={24} /><strong>No leads found</strong><p>Try a different search term.</p></div>}
+    {compact && <div className="table-foot">Showing {leads.length} lead{leads.length === 1 ? "" : "s"}</div>}
+  </div>;
 }
 
 function formatLeadEvent(event: LeadEvent, salespeople: Array<{ user_id: string; profiles: { full_name: string } | null }>) {
@@ -1221,6 +1318,7 @@ function formatLeadEvent(event: LeadEvent, salespeople: Array<{ user_id: string;
     lead_details_updated: "Lead details updated",
     lead_reassigned: "Lead reassigned",
     ownership_transferred: "Ownership transferred",
+    lead_campaign_changed: "Campaign changed",
     lead_shared: "Lead shared",
     lead_deleted: "Lead deleted",
     follow_up_scheduled: "Follow-up scheduled",
@@ -1234,11 +1332,14 @@ function formatLeadEvent(event: LeadEvent, salespeople: Array<{ user_id: string;
     summary = `${displayName(oldOwner)} → ${displayName(newOwner)}`;
   } else if (event.event_type === "status_changed" || event.event_type === "lead_status_changed") {
     summary = `${value(previous.status)} → ${value(next.status)}`;
+  } else if (event.event_type === "lead_campaign_changed") {
+    summary = `${value(previous.campaign_name)} → ${value(next.campaign_name)}`;
   } else if (event.event_type === "lead_details_updated") {
     const fieldLabels: Record<string, string> = { full_name: "Name", phone: "Phone", email: "Email", company: "Company", city: "City", state: "State", source: "Source", priority: "Priority" };
     summary = Object.keys(next).map((key) => `${fieldLabels[key] ?? key}: ${value(previous[key])} → ${value(next[key])}`).join(" · ");
   } else if (event.event_type === "lead_created") {
-    summary = next.source ? `Created from ${value(next.source)}` : "Lead added to the workspace";
+    const campaign = typeof next.campaign_name === "string" && next.campaign_name ? ` · Campaign: ${next.campaign_name}` : "";
+    summary = `${next.source ? `Created from ${value(next.source)}` : "Lead added to the workspace"}${campaign}`;
   } else if (event.event_type === "follow_up_scheduled") {
     summary = next.next_follow_up_at ? `Due ${new Date(String(next.next_follow_up_at)).toLocaleString()}` : "Follow-up date updated";
   } else {
@@ -1249,7 +1350,7 @@ function formatLeadEvent(event: LeadEvent, salespeople: Array<{ user_id: string;
   return { title: eventLabels[event.event_type] || event.event_type.replace(/_/g, " ").replace(/^\w/, (letter) => letter.toUpperCase()), summary, actor };
 }
 
-function LeadDetails({ lead, events, salespeople, initialMode = "share", canDelete = false, onClose, onDelete, onNotify, onRefresh }: { lead: LeadRecord; events: LeadEvent[]; salespeople: Array<{ user_id: string; role: string; profiles: { full_name: string } | null }>; initialMode?: "share" | "transfer"; canDelete?: boolean; onClose: () => void; onDelete: (id: string) => void; onNotify: (message: string) => void; onRefresh: () => Promise<void> }) {
+function LeadDetails({ lead, events, salespeople, campaigns = [], campaignAccess = [], initialMode = "share", canDelete = false, onClose, onDelete, onNotify, onRefresh }: { lead: LeadRecord; events: LeadEvent[]; salespeople: Array<{ user_id: string; role: string; profiles: { full_name: string } | null }>; campaigns?: OrganizationCampaign[]; campaignAccess?: CampaignAccessRecord[]; initialMode?: "share" | "transfer"; canDelete?: boolean; onClose: () => void; onDelete: (id: string) => void; onNotify: (message: string) => void; onRefresh: () => Promise<void> }) {
   const [mode, setMode] = useState<"share" | "transfer">(initialMode);
   const [userId, setUserId] = useState("");
   const [reason, setReason] = useState("");
@@ -1287,9 +1388,14 @@ function LeadDetails({ lead, events, salespeople, initialMode = "share", canDele
     ["Company", lead.company], ["Phone", lead.phone], ["Email", lead.email],
     ["City", lead.city], ["State", lead.state], ["Status", lead.status],
     ["Priority", lead.priority], ["Assigned to", salespeople.find((person) => person.user_id === lead.assigned_to)?.profiles?.full_name || (lead.assigned_to ? "Assigned teammate" : "Unassigned")],
+    ["Campaign", campaigns.find((campaign) => campaign.id === lead.campaign_id)?.name || (lead.campaign_id ? "Other campaign" : "—")],
     ["Arrived", new Date(lead.created_at).toLocaleString()], ["Next follow-up", lead.next_follow_up_at],
   ];
   const visibleCoreDetails = coreDetails.filter(([, value]) => value !== null && value !== undefined && value !== "");
+  const eligibleCampaignAssignees = salespeople.filter((person) => person.user_id !== lead.assigned_to
+    && (!lead.campaign_id
+      || ["company_owner", "organization_admin"].includes(person.role)
+      || campaignAccess.some((record) => record.campaign_id === lead.campaign_id && record.user_id === person.user_id)));
   const sheetColumns = Array.isArray(lead.custom_fields?._google_sheets_columns) ? lead.custom_fields._google_sheets_columns : [];
   const visibleSheetColumns = Array.isArray(lead.custom_fields?._google_sheets_visible_columns) ? lead.custom_fields._google_sheets_visible_columns : sheetColumns;
   const importedDetails = Object.entries(lead.custom_fields ?? {}).filter(([key, value]) => !key.startsWith("_google_sheets_") && !key.startsWith("_google_sheet_")
@@ -1338,7 +1444,7 @@ function LeadDetails({ lead, events, salespeople, initialMode = "share", canDele
         </div>
         <form className="share-panel" onSubmit={submit}>
           <div className="share-tabs"><button type="button" className={mode === "share" ? "active" : ""} onClick={() => setMode("share")}>Share access</button><button type="button" className={mode === "transfer" ? "active" : ""} onClick={() => setMode("transfer")}>{lead.assigned_to ? "Reassign owner" : "Assign owner"}</button></div>
-          <label>{mode === "share" ? "Salesperson" : lead.assigned_to ? "New owner" : "Assign to"}<select required value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Select teammate</option>{salespeople.filter((person) => person.user_id !== lead.assigned_to).map((person) => <option key={person.user_id} value={person.user_id}>{person.profiles?.full_name || person.user_id.slice(0, 8)}</option>)}</select></label>
+          <label>{mode === "share" ? "Salesperson" : lead.assigned_to ? "New owner" : "Assign to"}<select required value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Select teammate</option>{eligibleCampaignAssignees.map((person) => <option key={person.user_id} value={person.user_id}>{person.profiles?.full_name || person.user_id.slice(0, 8)}</option>)}</select></label>
           {mode === "share" && <label>Access expiry<input type="datetime-local" value={expiry} onChange={(event) => setExpiry(event.target.value)} /></label>}
           <label>{mode === "share" ? "Reason" : "Transfer reason"}<textarea required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain this lead action" /></label>
           <button className="button primary" disabled={busy}>{busy ? "Saving..." : mode === "share" ? "Share lead access" : lead.assigned_to ? "Transfer ownership" : "Assign lead"}</button>
@@ -1351,6 +1457,8 @@ function LeadDetails({ lead, events, salespeople, initialMode = "share", canDele
 
 function CallingWorkspace({ leads, membership, hasMore, isLoadingMore, onLoadMore, onNotify }: { leads: Lead[]; membership: Membership | null; hasMore: boolean; isLoadingMore: boolean; onLoadMore: () => Promise<boolean>; onNotify: (message: string) => void }) {
   const [index, setIndex] = useState(0);
+  const [bookedLeadIds, setBookedLeadIds] = useState<Set<string> | null>(null);
+  const [bookingLoadError, setBookingLoadError] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<string | null>(null);
   const [seconds, setSeconds] = useState(0);
   const [outcome, setOutcome] = useState("");
@@ -1358,7 +1466,43 @@ function CallingWorkspace({ leads, membership, hasMore, isLoadingMore, onLoadMor
   const [followUpAt, setFollowUpAt] = useState("");
   const [skipReason, setSkipReason] = useState("");
   const [skipNotes, setSkipNotes] = useState("");
-  const lead = leads[index];
+  useEffect(() => {
+    let active = true;
+    setBookedLeadIds(null);
+    setBookingLoadError(null);
+    if (!membership) {
+      setBookedLeadIds(new Set());
+      return () => { active = false; };
+    }
+    void listBookings(membership.organization_id).then((bookings) => {
+      if (!active) return;
+      setBookedLeadIds(new Set(bookings
+        .filter((booking) => booking.status !== "cancelled" && booking.status !== "refunded")
+        .map((booking) => booking.lead_id)));
+    }).catch((error: unknown) => {
+      if (!active) return;
+      setBookingLoadError(error instanceof Error ? error.message : "Could not load booking records.");
+    });
+    return () => { active = false; };
+  }, [membership?.organization_id]);
+  const orderedLeads = useMemo(() => {
+    if (!bookedLeadIds) return [];
+    const leadsById = new Map(leads.map((item) => [item.id, item]));
+    return orderCallingQueue(leads.map((item) => ({
+      id: item.id,
+      priority: "normal" as const,
+      status: item.status.toLowerCase().replace("-", "_"),
+      nextFollowUpAt: null,
+      createdAt: item.createdAt || "",
+      lastSuccessfulContactAt: null,
+      siteVisitAt: null,
+      bookingStatus: bookedLeadIds.has(item.dbId || "") || item.status === "Won" ? "booked" : null,
+    }))).flatMap((item) => {
+      const leadItem = leadsById.get(item.id);
+      return leadItem ? [leadItem] : [];
+    });
+  }, [leads, bookedLeadIds]);
+  const lead = orderedLeads[index];
   useEffect(() => {
     if (!startedAt) return;
     const timer = window.setInterval(() => setSeconds(Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000)), 1000);
@@ -1366,9 +1510,9 @@ function CallingWorkspace({ leads, membership, hasMore, isLoadingMore, onLoadMor
   }, [startedAt]);
   const next = async () => {
     const nextIndex = index + 1;
-    if (nextIndex < leads.length) setIndex(nextIndex);
+    if (nextIndex < orderedLeads.length) setIndex(nextIndex);
     else if (hasMore && !isLoadingMore) {
-      const currentLength = leads.length;
+      const currentLength = orderedLeads.length;
       setIndex(currentLength);
       if (!await onLoadMore()) setIndex(Math.max(0, currentLength - 1));
     } else setIndex(0);
@@ -1391,12 +1535,7 @@ function CallingWorkspace({ leads, membership, hasMore, isLoadingMore, onLoadMor
     try { await skipLead(lead.dbId, skipReason, skipNotes, followUpAt ? new Date(followUpAt).toISOString() : null); onNotify("Lead skipped and recorded"); next(); }
     catch (error) { onNotify(error instanceof Error ? error.message : "Could not skip lead"); }
   };
-  return <><PageHeader eyebrow="SMART CALLING QUEUE" title="Calling workspace" description="Manual confirmation mode is active until a supported telephony provider is configured." /><div className="calling-banner"><ShieldCheck size={17} /> No call is placed automatically. Use your device dialer, then record the outcome here.</div>{lead ? <div className="calling-grid"><section className="card current-lead-card"><div className="card-header"><div><p className="eyebrow">NEXT ELIGIBLE LEAD</p><h2>{lead.name}</h2><p>{lead.company} · {lead.source}</p></div><span className="status pending">{lead.status}</span></div><div className="calling-meta"><strong>{lead.phone || "Phone unavailable"}</strong><span>Priority is calculated from follow-up and lead state.</span><a className="button primary" href={lead.phone ? `tel:${lead.phone}` : undefined} onClick={() => { if (!lead.phone) onNotify("This lead has no phone number"); else if (!startedAt) { setStartedAt(new Date().toISOString()); setSeconds(0); } }}>{startedAt ? `Manual call active · ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : "Start manual call"}</a></div><button className="button secondary" disabled={isLoadingMore} onClick={() => void next()}>{isLoadingMore ? "Loading next leads…" : "Next lead"}</button></section><form className="card call-outcome" onSubmit={completeCall}><h2>Call disposition</h2><label>Outcome<select required value={outcome} onChange={(event) => setOutcome(event.target.value)}><option value="">Select outcome</option><option value="connected">Connected</option><option value="callback">Call back required</option><option value="not_reachable">Not reachable</option><option value="not_interested">Not interested</option><option value="wrong_number">Wrong number</option></select></label><label>Next follow-up<input type="datetime-local" value={followUpAt} onChange={(event) => setFollowUpAt(event.target.value)} /></label><label>Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label><button className="button primary" disabled={!startedAt}>Save call outcome</button><div className="skip-row"><select value={skipReason} onChange={(event) => setSkipReason(event.target.value)}><option value="">Skip reason</option><option value="wrong_number">Wrong number</option><option value="not_interested">Not interested</option><option value="already_contacted">Already contacted</option><option value="customer_busy">Customer busy</option><option value="duplicate_lead">Duplicate lead</option><option value="invalid_lead">Invalid lead</option><option value="other">Other</option></select><input placeholder="Skip notes" value={skipNotes} onChange={(event) => setSkipNotes(event.target.value)} /><button type="button" className="button secondary" onClick={handleSkip}>Skip lead</button></div></form></div> : <section className="card empty-state"><Headphones size={24} /><strong>No eligible leads</strong><p>Authorized leads with valid contact data will appear here.</p></section>}</>;
-}
-
-function Campaigns({ onNotify }: { onNotify: (message: string) => void }) {
-  const campaigns = [["Diwali Home Fest", "Meta Ads · Oct 01 – Nov 15", "Active", "426", "31.4%", "18.6%", "purple"], ["Website Enquiries", "Website · Ongoing", "Active", "318", "44.1%", "24.2%", "blue"], ["Referral Program", "Referral · Sep 01 – Dec 31", "Paused", "182", "52.7%", "29.8%", "green"]];
-  return <><PageHeader eyebrow="GROWTH" title="Campaigns" description="Track acquisition, engagement, and conversion by campaign." action={<button className="button primary" onClick={() => onNotify("Campaign creation is ready for setup")}><Plus size={17} /> New campaign</button>} /><div className="campaign-grid">{campaigns.map(([name, detail, status, leads, contact, conversion, color]) => <div className="card campaign-card" key={name}><div className="campaign-title"><div className={`campaign-icon ${color}`}><Target size={19} /></div><div><h2>{name}</h2><p>{detail}</p></div><button className="icon-button"><MoreHorizontal size={18} /></button></div><div className="campaign-status"><span className={`dot ${status === "Active" ? "dot-green" : "dot-orange"}`} />{status}<span className="campaign-leads">{leads} leads</span></div><div className="campaign-metrics"><div><small>Contact rate</small><strong>{contact}</strong></div><div><small>Conversion</small><strong>{conversion}</strong></div></div><div className="progress"><i style={{ width: conversion }} /></div><button className="text-button campaign-link" onClick={() => onNotify(`${name} details opened`)}>View campaign <ArrowUpRight size={15} /></button></div>)}</div></>;
+  return <><PageHeader eyebrow="SMART CALLING QUEUE" title="Calling workspace" description="Manual confirmation mode is active until a supported telephony provider is configured." /><div className="calling-banner"><ShieldCheck size={17} /> No call is placed automatically. Use your device dialer, then record the outcome here.</div>{bookingLoadError ? <section className="card empty-state" role="alert"><strong>Could not load booking priority</strong><p>{bookingLoadError}</p><p>Calling is paused so booked leads are not missed.</p></section> : membership && !bookedLeadIds ? <section className="card empty-state" role="status"><strong>Loading booking priority…</strong></section> : lead ? <div className="calling-grid"><section className="card current-lead-card"><div className="card-header"><div><p className="eyebrow">NEXT ELIGIBLE LEAD</p><h2>{lead.name}</h2><p>{lead.company} · {lead.source}</p></div><span className="status pending">{lead.status}</span></div><div className="calling-meta"><strong>{lead.phone || "Phone unavailable"}</strong><span>Booked leads are called first, then other leads by priority.</span><a className="button primary" href={lead.phone ? `tel:${lead.phone}` : undefined} onClick={() => { if (!lead.phone) onNotify("This lead has no phone number"); else if (!startedAt) { setStartedAt(new Date().toISOString()); setSeconds(0); } }}>{startedAt ? `Manual call active · ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}` : "Start manual call"}</a></div><button className="button secondary" disabled={isLoadingMore} onClick={() => void next()}>{isLoadingMore ? "Loading next leads…" : "Next lead"}</button></section><form className="card call-outcome" onSubmit={completeCall}><h2>Call disposition</h2><label>Outcome<select required value={outcome} onChange={(event) => setOutcome(event.target.value)}><option value="">Select outcome</option><option value="connected">Connected</option><option value="callback">Call back required</option><option value="not_reachable">Not reachable</option><option value="not_interested">Not interested</option><option value="wrong_number">Wrong number</option></select></label><label>Next follow-up<input type="datetime-local" value={followUpAt} onChange={(event) => setFollowUpAt(event.target.value)} /></label><label>Notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label><button className="button primary" disabled={!startedAt}>Save call outcome</button><div className="skip-row"><select value={skipReason} onChange={(event) => setSkipReason(event.target.value)}><option value="">Skip reason</option><option value="wrong_number">Wrong number</option><option value="not_interested">Not interested</option><option value="already_contacted">Already contacted</option><option value="customer_busy">Customer busy</option><option value="duplicate_lead">Duplicate lead</option><option value="invalid_lead">Invalid lead</option><option value="other">Other</option></select><input placeholder="Skip notes" value={skipNotes} onChange={(event) => setSkipNotes(event.target.value)} /><button type="button" className="button secondary" onClick={handleSkip}>Skip lead</button></div></form></div> : <section className="card empty-state"><Headphones size={24} /><strong>No eligible leads</strong><p>Authorized leads with valid contact data will appear here.</p></section>}</>;
 }
 
 function FollowUps({ onNotify }: { onNotify: (message: string) => void }) {

@@ -26,6 +26,9 @@ export function calculateLeadPriority(lead: QueueLead, now = new Date()): Priori
 
 export function orderCallingQueue(leads: QueueLead[], now = new Date()) {
   return [...leads].sort((a, b) => {
+    const leftBooked = a.bookingStatus === "booked";
+    const rightBooked = b.bookingStatus === "booked";
+    if (leftBooked !== rightBooked) return leftBooked ? -1 : 1;
     const left = calculateLeadPriority(a, now);
     const right = calculateLeadPriority(b, now);
     return right.score - left.score || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();

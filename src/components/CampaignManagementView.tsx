@@ -2,14 +2,12 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { ArrowUpRight, Plus, Target, Users, X } from "lucide-react";
 import { createOrganizationCampaign, listCampaignAccess, listOrganizationCampaigns, setCampaignAccess } from "../services/campaigns";
 import type { CampaignAccessRecord, OrganizationCampaign } from "../services/campaigns";
-import { listOrganizationSalespeople } from "../services/leads";
-import type { Membership } from "../services/workspace";
-
-type Salesperson = { user_id: string; role: string; profiles: { full_name: string } | null };
+import { listOrganizationMembers } from "../services/workspace";
+import type { Membership, OrganizationMember } from "../services/workspace";
 
 export function CampaignManagementView({ membership, onNotify }: { membership: Membership; onNotify: (message: string) => void }) {
   const [campaigns, setCampaigns] = useState<OrganizationCampaign[]>([]);
-  const [people, setPeople] = useState<Salesperson[]>([]);
+  const [people, setPeople] = useState<OrganizationMember[]>([]);
   const [access, setAccess] = useState<CampaignAccessRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -23,7 +21,7 @@ export function CampaignManagementView({ membership, onNotify }: { membership: M
   const refresh = useCallback(async () => {
     const [nextCampaigns, nextPeople] = await Promise.all([
       listOrganizationCampaigns(membership.organization_id),
-      listOrganizationSalespeople(membership.organization_id),
+      listOrganizationMembers(membership.organization_id).then((members) => members.filter((member) => member.is_active)),
     ]);
     const nextAccess = await listCampaignAccess(nextCampaigns.map((campaign) => campaign.id));
     setCampaigns(nextCampaigns);
@@ -74,7 +72,6 @@ export function CampaignManagementView({ membership, onNotify }: { membership: M
     try {
       if (editingAccess) {
         await setCampaignAccess(editingAccess.id, selectedMembers);
-        onNotify("Campaign access updated.");
       } else {
         await createOrganizationCampaign({
           organizationId: membership.organization_id,
@@ -82,14 +79,19 @@ export function CampaignManagementView({ membership, onNotify }: { membership: M
           description,
           memberIds: selectedMembers,
         });
-        onNotify("Campaign created.");
       }
-      closeModal();
-      await refresh();
     } catch (error) {
       onNotify(error instanceof Error ? error.message : "Campaign could not be saved.");
-    } finally {
       setSaving(false);
+      return;
+    }
+    setSaving(false);
+    closeModal();
+    onNotify(editingAccess ? "Campaign access updated." : "Campaign created.");
+    try {
+      await refresh();
+    } catch (error) {
+      onNotify(error instanceof Error ? `Saved, but campaign list could not be refreshed: ${error.message}` : "Saved, but campaign list could not be refreshed.");
     }
   };
 
