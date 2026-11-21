@@ -26,6 +26,16 @@ export type PlatformStats = {
   expiredSubscriptions: number; pendingWorkspaceRequests: number; recurringRevenue: number | null;
   recurringRevenueByCurrency: Record<string, number>;
 };
+export type PlatformLeadAnalytics = {
+  totalLeads: number;
+  siteVisits: number;
+  wonLeads: number;
+  openLeads: number;
+  duplicateLeads: number;
+  statusCounts: Record<string, number>;
+  sourceCounts: Record<string, number>;
+  daily: Array<{ activity_date: string; new_leads: number; cumulative_leads: number }>;
+};
 export type PlatformAudit = { id: string; organization_id: string | null; action: string; entity_type: string; created_at: string; metadata: Record<string, unknown> };
 export type PlatformMember = { organization_id: string; user_id: string; role: string; is_active: boolean; organizations: { name: string } | null; profiles: { full_name: string } | null };
 export type PlatformWorkspaceRequest = {
@@ -71,6 +81,29 @@ export async function getPlatformStats(): Promise<PlatformStats> {
       Object.entries((stats.recurring_revenue_by_currency || {}) as Record<string, unknown>)
         .map(([currency, amount]) => [currency, Number(amount)]),
     ),
+  };
+}
+
+export async function getPlatformLeadAnalytics(): Promise<PlatformLeadAnalytics> {
+  const { data, error } = await client().rpc("platform_lead_analytics");
+  if (error) throw error;
+  const analytics = (data ?? {}) as Record<string, unknown>;
+  return {
+    totalLeads: Number(analytics.total_leads || 0),
+    siteVisits: Number(analytics.site_visits || 0),
+    wonLeads: Number(analytics.won_leads || 0),
+    openLeads: Number(analytics.open_leads || 0),
+    duplicateLeads: Number(analytics.duplicate_leads || 0),
+    statusCounts: Object.fromEntries(Object.entries((analytics.status_counts ?? {}) as Record<string, unknown>).map(([key, value]) => [key, Number(value)])),
+    sourceCounts: Object.fromEntries(Object.entries((analytics.source_counts ?? {}) as Record<string, unknown>).map(([key, value]) => [key, Number(value)])),
+    daily: Array.isArray(analytics.daily) ? analytics.daily.map((point) => {
+      const value = point as Record<string, unknown>;
+      return {
+        activity_date: String(value.activity_date),
+        new_leads: Number(value.new_leads || 0),
+        cumulative_leads: Number(value.cumulative_leads || 0),
+      };
+    }) : [],
   };
 }
 

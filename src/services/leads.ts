@@ -7,6 +7,7 @@ import type { LeadCsvRecord } from "../lib/leadCsvImport";
 export type CreateLeadInput = Pick<LeadRecord, "full_name"> & Partial<Omit<LeadRecord, "id" | "organization_id" | "created_at" | "updated_at" | "external_id">>;
 export type LeadPage = { records: LeadRecord[]; totalCount: number | null };
 export type LeadTrendPoint = { activity_date: string; new_leads: number; cumulative_leads: number; status_counts: Record<string, number> };
+export type OrganizationLeadActivity = LeadEvent & { lead_external_id: string; lead_name: string };
 export type DuplicateLeadPreview = { id: string; external_id: string; full_name: string; phone: string | null; email: string | null; source: string };
 export type DuplicateLeadSummary = { duplicateCount: number; leads: DuplicateLeadPreview[] };
 
@@ -92,8 +93,23 @@ export async function createLead(input: CreateLeadInput): Promise<LeadRecord> {
   const client = requireClient();
   const { data: userData, error: userError } = await client.auth.getUser();
   if (userError) throw userError;
-  const { data: membership, error: membershipError } = await client.from("organization_members").select("organization_id").eq("user_id", userData.user.id).eq("is_active", true).limit(1).single();
+  const { data: membership, error: membershipError } = await client.from("organization_members").select("organization_id,role").eq("user_id", userData.user.id).eq("is_active", true).limit(1).single();
   if (membershipError) throw membershipError;
+  if (input.assigned_to) {
+    if (!["company_owner", "organization_admin", "manager"].includes(membership.role)) {
+      throw new Error("Only organization admins and managers can assign leads during creation.");
+    }
+    const { data: assignee, error: assigneeError } = await client
+      .from("organization_members")
+      .select("user_id")
+      .eq("organization_id", membership.organization_id)
+      .eq("user_id", input.assigned_to)
+      .eq("is_active", true)
+      .in("role", ["company_owner", "organization_admin", "manager", "agent"])
+      .maybeSingle();
+    if (assigneeError) throw assigneeError;
+    if (!assignee) throw new Error("Select an active salesperson from this organization.");
+  }
   const { data, error } = await client.from("leads").insert({ ...input, organization_id: membership.organization_id }).select("*").single();
   if (error) throw error;
   return data as LeadRecord;
@@ -181,6 +197,12 @@ export async function updateLeadStatus(id: string, status: LeadStatus): Promise<
   if (error) throw error;
 }
 
+export async function deleteLead(externalId: string): Promise<void> {
+  const client = requireClient();
+  const { error } = await client.rpc("delete_organization_lead", { target_external_id: externalId });
+  if (error) throw error;
+}
+
 export async function getLeadByExternalId(externalId: string): Promise<LeadRecord> {
   const { data, error } = await requireClient().from("leads").select("*").eq("external_id", externalId).single();
   if (error) throw error;
@@ -191,6 +213,35 @@ export async function listLeadTimeline(leadId: string): Promise<LeadEvent[]> {
   const { data, error } = await requireClient().from("lead_journey_events").select("*").eq("lead_id", leadId).order("created_at", { ascending: false });
   if (error) throw error;
   return (data ?? []) as LeadEvent[];
+}
+
+export async function listOrganizationLeadActivity(organizationId: string, limit = 40): Promise<OrganizationLeadActivity[]> {
+  const client = requireClient();
+  const safeLimit = Math.min(100, Math.max(1, Math.floor(limit)));
+  const { data: events, error: eventsError } = await client
+    .from("lead_journey_events")
+    .select("*")
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false })
+    .limit(safeLimit);
+  if (eventsError) throw eventsError;
+  const journeyEvents = (events ?? []) as LeadEvent[];
+  const leadIds = [...new Set(journeyEvents.map((event) => event.lead_id))];
+  if (!leadIds.length) return [];
+  const { data: leads, error: leadsError } = await client
+    .from("leads")
+    .select("id,external_id,full_name")
+    .in("id", leadIds);
+  if (leadsError) throw leadsError;
+  const leadNames = new Map((leads ?? []).map((lead) => [String(lead.id), {
+    externalId: String(lead.external_id),
+    name: String(lead.full_name),
+  }]));
+  return journeyEvents.map((event) => ({
+    ...event,
+    lead_external_id: leadNames.get(event.lead_id)?.externalId || "",
+    lead_name: leadNames.get(event.lead_id)?.name || "Unknown lead",
+  }));
 }
 
 export async function listOrganizationSalespeople(organizationId: string) {

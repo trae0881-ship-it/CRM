@@ -2,7 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   ArrowUpRight, BarChart3, Bell, CalendarDays, Check, ChevronDown, CircleHelp, Copy,
   ClipboardList, Clock3, Filter, LayoutDashboard, Menu, MoreHorizontal, Phone,
-  Plus, Search, Settings, Target, TrendingUp, Users, X, Zap, Headphones, LogOut,
+  Plus, Search, Settings, Target, TrendingUp, Users, X, Zap, Headphones, LogOut, Trash2,
   UsersRound, PieChart, Plug, ShieldCheck, MessageCircle, Upload,
   Building2, UserPlus, Wrench, Bot, Database, Globe2,
 } from "lucide-react";
@@ -10,8 +10,8 @@ import type { LucideIcon } from "lucide-react";
 import { isSupabaseConfigured, supabase, supabaseConfigError } from "./lib/supabase";
 import { getLeadDateBounds } from "./lib/leadDateFilter.mjs";
 import type { LeadDateFilter } from "./lib/leadDateFilter.mjs";
-import { createLead, getLeadByExternalId, getOrganizationDuplicateLeads, getOrganizationLeadTrend, listLeadTimeline, listOrganizationSalespeople, listLeadsPage, shareLead, transferLead, updateLeadStatus } from "./services/leads";
-import type { DuplicateLeadPreview, DuplicateLeadSummary, LeadTrendPoint } from "./services/leads";
+import { createLead, deleteLead, getLeadByExternalId, getOrganizationDuplicateLeads, getOrganizationLeadTrend, listLeadTimeline, listOrganizationLeadActivity, listOrganizationSalespeople, listLeadsPage, shareLead, transferLead, updateLeadStatus } from "./services/leads";
+import type { DuplicateLeadPreview, DuplicateLeadSummary, LeadTrendPoint, OrganizationLeadActivity } from "./services/leads";
 import { saveCall, skipLead } from "./services/calling";
 import { personalWhatsAppUrl, recordWhatsAppOpened, renderWhatsAppTemplate } from "./services/whatsapp";
 import { requestPasswordReset, signIn, signOut, signUp, updatePassword } from "./services/auth";
@@ -58,7 +58,7 @@ const LEAD_PAGE_SIZE = 50;
 type View = DashboardView;
 const leadLoadingViews = new Set<View>(["Overview", "Leads", "Calling", "Follow-ups", "Site Visits", "Bookings"]);
 type Status = "New" | "Contacted" | "Qualified" | "Follow-up" | "Won";
-type Lead = { id: string; dbId?: string; phone?: string | null; name: string; company: string; source: string; status: Status; score: number; owner: string; date: string; createdAt?: string; color: string };
+type Lead = { id: string; dbId?: string; assignedTo?: string | null; phone?: string | null; name: string; company: string; source: string; status: Status; score: number; owner: string; date: string; createdAt?: string; color: string };
 
 const initialLeads: Lead[] = [
   { id: "AD-1048", name: "Rohan Mehta", company: "Mehta Developers", source: "Website", status: "Qualified", score: 92, owner: "AS", date: "Today, 10:42 AM", createdAt: new Date().toISOString(), color: "#e1f4ec" },
@@ -139,6 +139,8 @@ function App() {
   const [leadTrend, setLeadTrend] = useState<LeadTrendPoint[]>([]);
   const [isLoadingLeadTrend, setIsLoadingLeadTrend] = useState(false);
   const [leadTrendDays, setLeadTrendDays] = useState(30);
+  const [organizationLeadActivity, setOrganizationLeadActivity] = useState<OrganizationLeadActivity[]>([]);
+  const [isLoadingLeadActivity, setIsLoadingLeadActivity] = useState(false);
   const [duplicateLeadSummary, setDuplicateLeadSummary] = useState<DuplicateLeadSummary>({ duplicateCount: 0, leads: [] });
   const [isLoadingDuplicateLeads, setIsLoadingDuplicateLeads] = useState(false);
   const [duplicateLeadError, setDuplicateLeadError] = useState("");
@@ -250,6 +252,8 @@ function App() {
     setLeadTrend([]);
     setIsLoadingLeadTrend(false);
     setLeadTrendDays(30);
+    setOrganizationLeadActivity([]);
+    setIsLoadingLeadActivity(false);
     setDuplicateLeadSummary({ duplicateCount: 0, leads: [] });
     setIsLoadingDuplicateLeads(false);
     setDuplicateLeadError("");
@@ -409,6 +413,35 @@ function App() {
     });
     return () => { active = false; };
   }, [membership?.organization_id, membership?.role, session?.user.id, view, leadTrendDays]);
+
+  useEffect(() => {
+    if (!supabase || !membership || (view !== "Leads" && !showLeadForm) || !["company_owner", "organization_admin", "manager"].includes(membership.role)) return;
+    let active = true;
+    void listOrganizationSalespeople(membership.organization_id).then((people) => {
+      if (active) setSalespeople(people);
+    }).catch((error) => {
+      if (active) notify(error instanceof Error ? error.message : "Sales team could not be loaded.");
+    });
+    return () => { active = false; };
+  }, [membership?.organization_id, membership?.role, session?.user.id, showLeadForm, view]);
+
+  useEffect(() => {
+    if (!supabase || !session || !membership || view !== "Leads" || !["company_owner", "organization_admin", "manager"].includes(membership.role)) {
+      setOrganizationLeadActivity([]);
+      setIsLoadingLeadActivity(false);
+      return;
+    }
+    let active = true;
+    setIsLoadingLeadActivity(true);
+    void listOrganizationLeadActivity(membership.organization_id, 40).then((activity) => {
+      if (active) setOrganizationLeadActivity(activity);
+    }).catch((error) => {
+      if (active) notify(error instanceof Error ? error.message : "Lead track records could not be loaded.");
+    }).finally(() => {
+      if (active) setIsLoadingLeadActivity(false);
+    });
+    return () => { active = false; };
+  }, [membership?.organization_id, membership?.role, session?.user.id, view, leadImportRefresh]);
 
   useEffect(() => {
     if (!supabase || !session || !membership || membership.role === "super_admin" || view !== "Overview") {
@@ -571,7 +604,8 @@ function App() {
     if (!name) return;
     if (supabase) {
       try {
-        const saved = await createLead({ full_name: name, company: String(form.get("company") || "New account"), phone: String(form.get("phone") || "") || null });
+        const assignedTo = String(form.get("assigned_to") || "").trim() || null;
+        const saved = await createLead({ full_name: name, company: String(form.get("company") || "New account"), phone: String(form.get("phone") || "") || null, assigned_to: assignedTo });
         const uiLead = toUiLead(saved);
         if (!debouncedQuery) {
           setLeads((current) => [uiLead, ...current]);
@@ -604,6 +638,20 @@ function App() {
       setSalespeople(people);
     } catch (error) {
       notify(error instanceof Error ? error.message : "Could not open lead");
+    }
+  };
+
+  const removeLead = async (externalId: string) => {
+    if (!window.confirm("Delete this lead? It will be removed from active leads and reports. This action can be audited.")) return;
+    try {
+      await deleteLead(externalId);
+      setSelectedLead(null);
+      setOperationLeads((current) => current.filter((lead) => lead.external_id !== externalId));
+      setLeads((current) => current.filter((lead) => lead.id !== externalId));
+      setLeadImportRefresh((current) => current + 1);
+      notify("Lead deleted successfully");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Lead could not be deleted");
     }
   };
 
@@ -723,7 +771,7 @@ function App() {
           {view === "Sales Pipeline" && membership && <SalesPipelineView membership={membership} onNotify={notify} />}
           {view === "Customer 360" && membership && <Customer360View membership={membership} onNotify={notify} />}
           {view === "Overview" && <Overview leads={leads} totalLeadCount={totalLeadCount} trend={leadTrend} isLoadingTrend={isLoadingLeadTrend} leadTrendDays={leadTrendDays} onLeadTrendDaysChange={setLeadTrendDays} duplicateLeadSummary={duplicateLeadSummary} isLoadingDuplicateLeads={isLoadingDuplicateLeads} duplicateLeadError={duplicateLeadError} performance={performance} role={membership?.role} organizationName={organizationProfile?.name || ""} teamNames={teamNames} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => navigateToPath("/org/leads")} onOpenLead={(id) => void loadLeadDetails(id)} />}
-          {view === "Leads" && <LeadsView leads={filteredLeads} totalCount={isSupabaseConfigured ? totalLeadCount : filteredLeads.length} isLoading={isLoadingLeads} isSearchPending={query.trim() !== debouncedQuery} isLoadingMore={isLoadingMoreLeads} hasMore={Boolean(supabase) && !leadDateFilterError && operationLeads.length < totalLeadCount} onLoadMore={() => void loadMoreLeads()} query={query} dateFilter={leadDateFilter} startDate={leadStartDate} endDate={leadEndDate} dateFilterError={leadDateFilterError} onDateFilterChange={setLeadDateFilter} onStartDateChange={setLeadStartDate} onEndDateChange={setLeadEndDate} onAdd={() => setShowLeadForm(true)} canImport={membership?.role === "company_owner" || membership?.role === "organization_admin"} onImport={() => setShowLeadImport(true)} onOpen={(externalId) => void loadLeadDetails(externalId)} onTransfer={(externalId) => void loadLeadDetails(externalId, "transfer")} onStatusChange={async (id, status) => { try { if (supabase) await updateLeadStatus(id, status.toLowerCase().replace("-", "_") as LeadStatus); setLeads((all) => all.map((lead) => lead.id === id ? { ...lead, status } : lead)); notify("Lead status updated"); } catch (error) { notify(error instanceof Error ? error.message : "Could not update lead"); } }} />}
+          {view === "Leads" && <LeadsView leads={filteredLeads} totalCount={isSupabaseConfigured ? totalLeadCount : filteredLeads.length} isLoading={isLoadingLeads} isSearchPending={query.trim() !== debouncedQuery} isLoadingMore={isLoadingMoreLeads} hasMore={Boolean(supabase) && !leadDateFilterError && operationLeads.length < totalLeadCount} onLoadMore={() => void loadMoreLeads()} query={query} dateFilter={leadDateFilter} startDate={leadStartDate} endDate={leadEndDate} dateFilterError={leadDateFilterError} activity={organizationLeadActivity} isLoadingActivity={isLoadingLeadActivity} canTrack={membership?.role === "company_owner" || membership?.role === "organization_admin" || membership?.role === "manager"} salespeople={salespeople} onDateFilterChange={setLeadDateFilter} onStartDateChange={setLeadStartDate} onEndDateChange={setLeadEndDate} onAdd={() => setShowLeadForm(true)} canImport={membership?.role === "company_owner" || membership?.role === "organization_admin"} onImport={() => setShowLeadImport(true)} onOpen={(externalId) => void loadLeadDetails(externalId)} onTransfer={(externalId) => void loadLeadDetails(externalId, "transfer")} onDelete={removeLead} canDelete={membership?.role === "company_owner" || membership?.role === "organization_admin"} onStatusChange={async (id, status) => { try { if (supabase) await updateLeadStatus(id, status.toLowerCase().replace("-", "_") as LeadStatus); setLeads((all) => all.map((lead) => lead.id === id ? { ...lead, status } : lead)); notify("Lead status updated"); } catch (error) { notify(error instanceof Error ? error.message : "Could not update lead"); } }} />}
           {view === "Campaigns" && (isSupabaseConfigured ? <ModulePending eyebrow="CAMPAIGN MANAGEMENT" title="Campaigns" description="Campaign records will appear here after the campaign repository is connected." icon={<Target size={24} />} /> : <Campaigns onNotify={notify} />)}
           {view === "Follow-ups" && (membership ? <FollowUpsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FOLLOW-UP QUEUE" title="Follow-ups" description="An authenticated organization membership is required." icon={<ClipboardList size={24} />} />)}
           {view === "Calling" && <CallingWorkspace leads={filteredLeads} membership={membership} hasMore={Boolean(supabase) && operationLeads.length < totalLeadCount} isLoadingMore={isLoadingMoreLeads} onLoadMore={loadMoreLeads} onNotify={notify} />}
@@ -739,13 +787,13 @@ function App() {
           </Suspense>
         </div>
       </main>
-      {showLeadForm && <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setShowLeadForm(false)}><form className="modal" onSubmit={addLead}><div className="modal-head"><div><p className="eyebrow">NEW RECORD</p><h2>Create a lead</h2></div><button type="button" className="icon-button" onClick={() => setShowLeadForm(false)}><X size={19} /></button></div><label>Full name<input name="name" required placeholder="e.g. Rohan Mehta" autoFocus /></label><label>Company<input name="company" placeholder="e.g. Acme Pvt. Ltd." /></label><label>Phone number<input name="phone" type="tel" placeholder="+91 98765 43210" /></label><div className="modal-actions"><button type="button" className="button secondary" onClick={() => setShowLeadForm(false)}>Cancel</button><button className="button primary" type="submit">Create lead</button></div></form></div>}
+      {showLeadForm && <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setShowLeadForm(false)}><form className="modal" onSubmit={addLead}><div className="modal-head"><div><p className="eyebrow">NEW RECORD</p><h2>Create a lead</h2></div><button type="button" className="icon-button" onClick={() => setShowLeadForm(false)}><X size={19} /></button></div><label>Full name<input name="name" required placeholder="e.g. Rohan Mehta" autoFocus /></label><label>Company<input name="company" placeholder="e.g. Acme Pvt. Ltd." /></label><label>Phone number<input name="phone" type="tel" placeholder="+91 98765 43210" /></label>{membership && ["company_owner", "organization_admin", "manager"].includes(membership.role) && <label>Assign to<select name="assigned_to" defaultValue=""><option value="">Leave unassigned</option>{salespeople.map((person) => <option key={person.user_id} value={person.user_id}>{person.profiles?.full_name || person.user_id.slice(0, 8)}</option>)}</select></label>}<div className="modal-actions"><button type="button" className="button secondary" onClick={() => setShowLeadForm(false)}>Cancel</button><button className="button primary" type="submit">Create lead</button></div></form></div>}
       {showLeadImport && membership && <LeadCsvImportModal organizationId={membership.organization_id} onClose={() => setShowLeadImport(false)} onImported={(result) => {
         setShowLeadImport(false);
         if (result.imported) setLeadImportRefresh((current) => current + 1);
         notify(`${result.imported} leads imported; ${result.duplicates} existing duplicates and ${result.invalidRows} invalid rows skipped.${result.error ? ` ${result.error}` : ""}`);
       }} onNotify={notify} />}
-      {selectedLead && <LeadDetails lead={selectedLead} events={timeline} salespeople={salespeople} initialMode={leadDetailsMode} onClose={() => setSelectedLead(null)} onNotify={notify} onRefresh={async () => setTimeline(await listLeadTimeline(selectedLead.id))} />}
+      {selectedLead && <LeadDetails lead={selectedLead} events={timeline} salespeople={salespeople} initialMode={leadDetailsMode} canDelete={membership?.role === "company_owner" || membership?.role === "organization_admin"} onClose={() => setSelectedLead(null)} onDelete={removeLead} onNotify={notify} onRefresh={async () => setTimeline(await listLeadTimeline(selectedLead.id))} />}
       {toast && <div className="toast"><Check size={17} />{toast}</div>}
     </div>
   )}</DashboardLayout></ProtectedRoute>;
@@ -757,7 +805,7 @@ function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; 
 
 function toUiLead(record: LeadRecord): Lead {
   const statusMap: Record<LeadStatus, Status> = { new: "New", contacted: "Contacted", qualified: "Qualified", follow_up: "Follow-up", won: "Won", lost: "Follow-up" };
-  return { id: record.external_id, dbId: record.id, phone: record.phone, name: record.full_name, company: record.company || "New account", source: record.source, status: statusMap[record.status], score: record.score, owner: record.assigned_to ? record.assigned_to.slice(0, 2).toUpperCase() : "—", date: new Date(record.created_at).toLocaleString(), createdAt: record.created_at, color: "#e1f4ec" };
+  return { id: record.external_id, dbId: record.id, assignedTo: record.assigned_to, phone: record.phone, name: record.full_name, company: record.company || "New account", source: record.source, status: statusMap[record.status], score: record.score, owner: record.assigned_to ? "Assigned" : "Unassigned", date: new Date(record.created_at).toLocaleString(), createdAt: record.created_at, color: "#e1f4ec" };
 }
 
 function ModulePending({ eyebrow, title, description, icon }: { eyebrow: string; title: string; description: string; icon: React.ReactNode }) {
@@ -1031,13 +1079,14 @@ function DuplicateLeadRow({ lead, onOpen }: { lead: DuplicateLeadPreview; onOpen
   </button>;
 }
 
-function LeadsView({ leads, totalCount, isLoading, isSearchPending, isLoadingMore, hasMore, onLoadMore, query, dateFilter, startDate, endDate, dateFilterError, onDateFilterChange, onStartDateChange, onEndDateChange, onAdd, canImport, onImport, onOpen, onTransfer, onStatusChange }: { leads: Lead[]; totalCount: number; isLoading: boolean; isSearchPending: boolean; isLoadingMore: boolean; hasMore: boolean; onLoadMore: () => void; query: string; dateFilter: LeadDateFilter; startDate: string; endDate: string; dateFilterError: string; onDateFilterChange: (filter: LeadDateFilter) => void; onStartDateChange: (date: string) => void; onEndDateChange: (date: string) => void; onAdd: () => void; canImport: boolean; onImport: () => void; onOpen: (id: string) => void; onTransfer: (id: string) => void; onStatusChange: (id: string, status: Status) => void }) {
+function LeadsView({ leads, totalCount, isLoading, isSearchPending, isLoadingMore, hasMore, onLoadMore, query, dateFilter, startDate, endDate, dateFilterError, activity, isLoadingActivity, canTrack, salespeople, onDateFilterChange, onStartDateChange, onEndDateChange, onAdd, canImport, onImport, onOpen, onTransfer, onDelete, canDelete, onStatusChange }: { leads: Lead[]; totalCount: number; isLoading: boolean; isSearchPending: boolean; isLoadingMore: boolean; hasMore: boolean; onLoadMore: () => void; query: string; dateFilter: LeadDateFilter; startDate: string; endDate: string; dateFilterError: string; activity: OrganizationLeadActivity[]; isLoadingActivity: boolean; canTrack: boolean; salespeople: Array<{ user_id: string; role: string; profiles: { full_name: string } | null }>; onDateFilterChange: (filter: LeadDateFilter) => void; onStartDateChange: (date: string) => void; onEndDateChange: (date: string) => void; onAdd: () => void; canImport: boolean; onImport: () => void; onOpen: (id: string) => void; onTransfer: (id: string) => void; onDelete: (id: string) => void; canDelete: boolean; onStatusChange: (id: string, status: Status) => void }) {
   const isRefreshing = isLoading || isSearchPending;
-  return <><PageHeader eyebrow="LEAD MANAGEMENT" title="Leads" description={isRefreshing && leads.length ? "Updating results; the previous result set remains visible." : `Showing ${leads.length} of ${totalCount} matching authorized leads.`} action={<div className="page-actions">{canImport && <button className="button secondary" onClick={onImport}><Upload size={16} /> Import CSV</button>}<button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} /><div className="toolbar"><div className="filter-search"><Search size={17} /><input placeholder="Search leads..." value={query} readOnly /></div><label className="lead-filter-control"><Filter size={16} /><span>Lead menu</span><select aria-label="Filter leads by age or date" value={dateFilter} onChange={(event) => onDateFilterChange(event.target.value as LeadDateFilter)}><option value="all">All leads</option><option value="new">New leads · last 7 days</option><option value="old">Old leads · over 7 days</option><option value="custom">Custom date range</option></select></label>{dateFilter === "custom" && <div className="lead-date-range"><label>From<input aria-label="Start date" type="date" value={startDate} max={endDate || undefined} onChange={(event) => onStartDateChange(event.target.value)} /></label><label>To<input aria-label="End date" type="date" value={endDate} min={startDate || undefined} onChange={(event) => onEndDateChange(event.target.value)} /></label></div>}{dateFilterError && <p className="lead-filter-error" role="alert">{dateFilterError}</p>}</div><section className="card table-card">{isLoading && !leads.length ? <div className="route-loading" role="status">Loading leads…</div> : <LeadTable leads={leads} onOpen={onOpen} onTransfer={onTransfer} onStatusChange={onStatusChange} />}{hasMore && <div className="lead-pagination"><button className="button secondary" disabled={isLoadingMore} onClick={onLoadMore}>{isLoadingMore ? "Loading…" : `Load more (${totalCount - leads.length} remaining)`}</button></div>}</section></>;
+  return <><PageHeader eyebrow="LEAD MANAGEMENT" title="Leads" description={isRefreshing && leads.length ? "Updating results; the previous result set remains visible." : `Showing ${leads.length} of ${totalCount} matching authorized leads.`} action={<div className="page-actions">{canImport && <button className="button secondary" onClick={onImport}><Upload size={16} /> Import CSV</button>}<button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} /><div className="toolbar"><div className="filter-search"><Search size={17} /><input placeholder="Search leads..." value={query} readOnly /></div><label className="lead-filter-control"><Filter size={16} /><span>Lead menu</span><select aria-label="Filter leads by age or date" value={dateFilter} onChange={(event) => onDateFilterChange(event.target.value as LeadDateFilter)}><option value="all">All leads</option><option value="new">New leads · last 7 days</option><option value="old">Old leads · over 7 days</option><option value="custom">Custom date range</option></select></label>{dateFilter === "custom" && <div className="lead-date-range"><label>From<input aria-label="Start date" type="date" value={startDate} max={endDate || undefined} onChange={(event) => onStartDateChange(event.target.value)} /></label><label>To<input aria-label="End date" type="date" value={endDate} min={startDate || undefined} onChange={(event) => onEndDateChange(event.target.value)} /></label></div>}{dateFilterError && <p className="lead-filter-error" role="alert">{dateFilterError}</p>}</div><section className="card table-card">{isLoading && !leads.length ? <div className="route-loading" role="status">Loading leads…</div>   : <LeadTable leads={leads} salespeople={salespeople} onOpen={onOpen} onTransfer={canTrack ? onTransfer : undefined} onDelete={onDelete} canDelete={canDelete} onStatusChange={onStatusChange} />}{hasMore && <div className="lead-pagination"><button className="button secondary" disabled={isLoadingMore} onClick={onLoadMore}>{isLoadingMore ? "Loading…" : `Load more (${totalCount - leads.length} remaining)`}</button></div>}</section>{canTrack && <section className="card organization-track-record"><div className="card-header"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Every lead track record</h2><p>Recent creation, ownership, status, call, visit and booking activity across the organization.</p></div><span className="pending-pill">{isLoadingActivity ? "Loading…" : `${activity.length} recent events`}</span></div>{isLoadingActivity ? <p className="muted" role="status">Loading lead activity…</p> : activity.length ? <div className="organization-track-list">{activity.map((event) => { const details = formatLeadEvent(event, salespeople); return <button className="organization-track-row" key={event.id} onClick={() => event.lead_external_id && onOpen(event.lead_external_id)}><span className="organization-track-dot" /><span className="organization-track-main"><strong>{event.lead_name}</strong><span>{details.title}</span>{details.summary && <small>{details.summary}</small>}</span><span className="organization-track-meta"><small>By {details.actor}</small><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time></span><ArrowUpRight size={15} /></button>; })}</div> : <div className="empty-state"><ClipboardList size={24} /><strong>No lead activity recorded</strong><p>Lead actions will appear here as they happen.</p></div>}</section>}</>;
 }
 
-function LeadTable({ leads, compact = false, onOpen, onTransfer, onStatusChange }: { leads: Lead[]; compact?: boolean; onOpen?: (id: string) => void; onTransfer?: (id: string) => void; onStatusChange?: (id: string, status: Status) => void }) {
-  return <div className="table-scroll"><table><thead><tr><th>LEAD</th><th>SOURCE</th><th>STATUS</th><th>LEAD SCORE</th><th>OWNER</th><th>ADDED</th><th /></tr></thead><tbody>{leads.map((lead) => <tr key={lead.id}><td><button className="lead-cell lead-link" onClick={() => onOpen?.(lead.id)}><div className="lead-avatar" style={{ background: lead.color }}>{lead.name.split(" ").map((n) => n[0]).join("")}</div><div><strong>{lead.name}</strong><small>{lead.company} · {lead.id}</small></div></button></td><td>{lead.source}</td><td>{onStatusChange ? <select className={`status-select ${lead.status.toLowerCase().replace("-", "")}`} value={lead.status} onChange={(e) => onStatusChange(lead.id, e.target.value as Status)}>{(["New", "Contacted", "Qualified", "Follow-up", "Won"] as Status[]).map((status) => <option key={status}>{status}</option>)}</select> : <span className={`status ${lead.status.toLowerCase().replace("-", "")}`}>{lead.status}</span>}</td><td><div className="score"><span className="score-bar"><i style={{ width: `${lead.score}%` }} /></span><strong>{lead.score}</strong></div></td><td><span className="owner">{lead.owner}</span></td><td className="date-cell">{lead.date}</td><td><div className="page-actions">{onTransfer && <button className="button secondary" onClick={() => onTransfer(lead.id)}>Transfer</button>}<button className="icon-button" onClick={() => onOpen?.(lead.id)}><MoreHorizontal size={17} /></button></div></td></tr>)}</tbody></table>{!leads.length && <div className="empty-state"><Search size={24} /><strong>No leads found</strong><p>Try a different search term.</p></div>}{compact && <div className="table-foot">Showing {leads.length} lead{leads.length === 1 ? "" : "s"}</div>}</div>;
+function LeadTable({ leads, compact = false, salespeople = [], onOpen, onTransfer, onDelete, canDelete = false, onStatusChange }: { leads: Lead[]; compact?: boolean; salespeople?: Array<{ user_id: string; profiles: { full_name: string } | null }>; onOpen?: (id: string) => void; onTransfer?: (id: string) => void; onDelete?: (id: string) => void; canDelete?: boolean; onStatusChange?: (id: string, status: Status) => void }) {
+  const ownerName = (lead: Lead) => lead.assignedTo ? salespeople.find((person) => person.user_id === lead.assignedTo)?.profiles?.full_name || "Assigned" : "Unassigned";
+  return <div className="table-scroll"><table><thead><tr><th>LEAD</th><th>SOURCE</th><th>STATUS</th><th>LEAD SCORE</th><th>ASSIGNED TO</th><th>ARRIVED</th><th /></tr></thead><tbody>{leads.map((lead) => <tr key={lead.id}><td><button className="lead-cell lead-link" onClick={() => onOpen?.(lead.id)}><div className="lead-avatar" style={{ background: lead.color }}>{lead.name.split(" ").map((n) => n[0]).join("")}</div><div><strong>{lead.name}</strong><small>{lead.company} · {lead.id}</small></div></button></td><td>{lead.source}</td><td>{onStatusChange ? <select className={`status-select ${lead.status.toLowerCase().replace("-", "")}`} value={lead.status} onChange={(e) => onStatusChange(lead.id, e.target.value as Status)}>{(["New", "Contacted", "Qualified", "Follow-up", "Won"] as Status[]).map((status) => <option key={status}>{status}</option>)}</select> : <span className={`status ${lead.status.toLowerCase().replace("-", "")}`}>{lead.status}</span>}</td><td><div className="score"><span className="score-bar"><i style={{ width: `${lead.score}%` }} /></span><strong>{lead.score}</strong></div></td><td><span className={`owner ${lead.assignedTo ? "" : "owner-unassigned"}`}>{ownerName(lead)}</span></td><td className="date-cell"><time dateTime={lead.createdAt}>{lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : lead.date}<small>{lead.createdAt ? new Date(lead.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</small></time></td><td><div className="page-actions">{onTransfer && <button className="button secondary" aria-label={`${lead.assignedTo ? "Reassign" : "Assign"} ${lead.name}`} onClick={() => onTransfer(lead.id)}>{lead.assignedTo ? "Reassign" : "Assign"}</button>}{canDelete && onDelete && <button className="icon-button danger-icon" aria-label={`Delete ${lead.name}`} title="Delete lead" onClick={() => onDelete(lead.id)}><Trash2 size={16} /></button>}<button className="icon-button" aria-label={`Open ${lead.name}`} onClick={() => onOpen?.(lead.id)}><MoreHorizontal size={17} /></button></div></td></tr>)}</tbody></table>{!leads.length && <div className="empty-state"><Search size={24} /><strong>No leads found</strong><p>Try a different search term.</p></div>}{compact && <div className="table-foot">Showing {leads.length} lead{leads.length === 1 ? "" : "s"}</div>}</div>;
 }
 
 function formatLeadEvent(event: LeadEvent, salespeople: Array<{ user_id: string; profiles: { full_name: string } | null }>) {
@@ -1060,6 +1109,7 @@ function formatLeadEvent(event: LeadEvent, salespeople: Array<{ user_id: string;
     lead_reassigned: "Lead reassigned",
     ownership_transferred: "Ownership transferred",
     lead_shared: "Lead shared",
+    lead_deleted: "Lead deleted",
     follow_up_scheduled: "Follow-up scheduled",
     call_recorded: "Call recorded",
     lead_skipped: "Lead skipped",
@@ -1086,7 +1136,7 @@ function formatLeadEvent(event: LeadEvent, salespeople: Array<{ user_id: string;
   return { title: eventLabels[event.event_type] || event.event_type.replace(/_/g, " ").replace(/^\w/, (letter) => letter.toUpperCase()), summary, actor };
 }
 
-function LeadDetails({ lead, events, salespeople, initialMode = "share", onClose, onNotify, onRefresh }: { lead: LeadRecord; events: LeadEvent[]; salespeople: Array<{ user_id: string; role: string; profiles: { full_name: string } | null }>; initialMode?: "share" | "transfer"; onClose: () => void; onNotify: (message: string) => void; onRefresh: () => Promise<void> }) {
+function LeadDetails({ lead, events, salespeople, initialMode = "share", canDelete = false, onClose, onDelete, onNotify, onRefresh }: { lead: LeadRecord; events: LeadEvent[]; salespeople: Array<{ user_id: string; role: string; profiles: { full_name: string } | null }>; initialMode?: "share" | "transfer"; canDelete?: boolean; onClose: () => void; onDelete: (id: string) => void; onNotify: (message: string) => void; onRefresh: () => Promise<void> }) {
   const [mode, setMode] = useState<"share" | "transfer">(initialMode);
   const [userId, setUserId] = useState("");
   const [reason, setReason] = useState("");
@@ -1123,7 +1173,8 @@ function LeadDetails({ lead, events, salespeople, initialMode = "share", onClose
   const coreDetails: Array<[string, unknown]> = [
     ["Company", lead.company], ["Phone", lead.phone], ["Email", lead.email],
     ["City", lead.city], ["State", lead.state], ["Status", lead.status],
-    ["Priority", lead.priority], ["Next follow-up", lead.next_follow_up_at],
+    ["Priority", lead.priority], ["Assigned to", salespeople.find((person) => person.user_id === lead.assigned_to)?.profiles?.full_name || (lead.assigned_to ? "Assigned teammate" : "Unassigned")],
+    ["Arrived", new Date(lead.created_at).toLocaleString()], ["Next follow-up", lead.next_follow_up_at],
   ];
   const visibleCoreDetails = coreDetails.filter(([, value]) => value !== null && value !== undefined && value !== "");
   const sheetColumns = Array.isArray(lead.custom_fields?._google_sheets_columns) ? lead.custom_fields._google_sheets_columns : [];
@@ -1173,11 +1224,12 @@ function LeadDetails({ lead, events, salespeople, initialMode = "share", onClose
           <div className="whatsapp-box"><h3>Personal WhatsApp</h3><textarea value={whatsappText} onChange={(event) => setWhatsappText(event.target.value)} /><button className="button secondary" type="button" onClick={openWhatsApp}>Open WhatsApp</button><small>Opened only; delivery is not confirmed.</small></div>
         </div>
         <form className="share-panel" onSubmit={submit}>
-          <div className="share-tabs"><button type="button" className={mode === "share" ? "active" : ""} onClick={() => setMode("share")}>Share access</button><button type="button" className={mode === "transfer" ? "active" : ""} onClick={() => setMode("transfer")}>Transfer owner</button></div>
-          <label>Salesperson<select required value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Select teammate</option>{salespeople.filter((person) => person.user_id !== lead.assigned_to).map((person) => <option key={person.user_id} value={person.user_id}>{person.profiles?.full_name || person.user_id.slice(0, 8)}</option>)}</select></label>
+          <div className="share-tabs"><button type="button" className={mode === "share" ? "active" : ""} onClick={() => setMode("share")}>Share access</button><button type="button" className={mode === "transfer" ? "active" : ""} onClick={() => setMode("transfer")}>{lead.assigned_to ? "Reassign owner" : "Assign owner"}</button></div>
+          <label>{mode === "share" ? "Salesperson" : lead.assigned_to ? "New owner" : "Assign to"}<select required value={userId} onChange={(event) => setUserId(event.target.value)}><option value="">Select teammate</option>{salespeople.filter((person) => person.user_id !== lead.assigned_to).map((person) => <option key={person.user_id} value={person.user_id}>{person.profiles?.full_name || person.user_id.slice(0, 8)}</option>)}</select></label>
           {mode === "share" && <label>Access expiry<input type="datetime-local" value={expiry} onChange={(event) => setExpiry(event.target.value)} /></label>}
           <label>{mode === "share" ? "Reason" : "Transfer reason"}<textarea required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Explain this lead action" /></label>
-          <button className="button primary" disabled={busy}>{busy ? "Saving..." : mode === "share" ? "Share lead access" : "Transfer ownership"}</button>
+          <button className="button primary" disabled={busy}>{busy ? "Saving..." : mode === "share" ? "Share lead access" : lead.assigned_to ? "Transfer ownership" : "Assign lead"}</button>
+          {canDelete && <button type="button" className="button danger-button" disabled={busy} onClick={() => onDelete(lead.external_id)}><Trash2 size={15} /> Delete lead</button>}
         </form>
       </div>
     </section>
