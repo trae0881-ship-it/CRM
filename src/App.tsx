@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowUpRight, BarChart3, Bell, CalendarDays, Check, ChevronDown, CircleHelp,
+  ArrowUpRight, BarChart3, Bell, CalendarDays, Check, ChevronDown, CircleHelp, Copy,
   ClipboardList, Clock3, Filter, LayoutDashboard, Menu, MoreHorizontal, Phone,
   Plus, Search, Settings, Target, TrendingUp, Users, X, Zap, Headphones, LogOut,
   UsersRound, PieChart, Plug, ShieldCheck, MessageCircle, Upload,
@@ -8,8 +8,10 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { isSupabaseConfigured, supabase, supabaseConfigError } from "./lib/supabase";
-import { createLead, getLeadByExternalId, getOrganizationLeadTrend, listLeadTimeline, listOrganizationSalespeople, listLeadsPage, shareLead, transferLead, updateLeadStatus } from "./services/leads";
-import type { LeadTrendPoint } from "./services/leads";
+import { getLeadDateBounds } from "./lib/leadDateFilter.mjs";
+import type { LeadDateFilter } from "./lib/leadDateFilter.mjs";
+import { createLead, getLeadByExternalId, getOrganizationDuplicateLeads, getOrganizationLeadTrend, listLeadTimeline, listOrganizationSalespeople, listLeadsPage, shareLead, transferLead, updateLeadStatus } from "./services/leads";
+import type { DuplicateLeadPreview, DuplicateLeadSummary, LeadTrendPoint } from "./services/leads";
 import { saveCall, skipLead } from "./services/calling";
 import { personalWhatsAppUrl, recordWhatsAppOpened, renderWhatsAppTemplate } from "./services/whatsapp";
 import { requestPasswordReset, signIn, signOut, signUp, updatePassword } from "./services/auth";
@@ -56,14 +58,14 @@ const LEAD_PAGE_SIZE = 50;
 type View = DashboardView;
 const leadLoadingViews = new Set<View>(["Overview", "Leads", "Calling", "Follow-ups", "Site Visits", "Bookings"]);
 type Status = "New" | "Contacted" | "Qualified" | "Follow-up" | "Won";
-type Lead = { id: string; dbId?: string; phone?: string | null; name: string; company: string; source: string; status: Status; score: number; owner: string; date: string; color: string };
+type Lead = { id: string; dbId?: string; phone?: string | null; name: string; company: string; source: string; status: Status; score: number; owner: string; date: string; createdAt?: string; color: string };
 
 const initialLeads: Lead[] = [
-  { id: "AD-1048", name: "Rohan Mehta", company: "Mehta Developers", source: "Website", status: "Qualified", score: 92, owner: "AS", date: "Today, 10:42 AM", color: "#e1f4ec" },
-  { id: "AD-1047", name: "Priya Sharma", company: "Aster Living", source: "Meta Ads", status: "Contacted", score: 78, owner: "RK", date: "Today, 09:18 AM", color: "#fff1dd" },
-  { id: "AD-1046", name: "Arjun Kapoor", company: "Kapoor & Sons", source: "Referral", status: "New", score: 61, owner: "—", date: "Yesterday, 04:32 PM", color: "#e8e4ff" },
-  { id: "AD-1045", name: "Sneha Iyer", company: "Iyer Enterprises", source: "Google Search", status: "Follow-up", score: 84, owner: "AS", date: "Yesterday, 02:06 PM", color: "#fde2e3" },
-  { id: "AD-1044", name: "Vikram Singh", company: "Northstar Homes", source: "Website", status: "Won", score: 97, owner: "RK", date: "Oct 28, 2024", color: "#dceefd" },
+  { id: "AD-1048", name: "Rohan Mehta", company: "Mehta Developers", source: "Website", status: "Qualified", score: 92, owner: "AS", date: "Today, 10:42 AM", createdAt: new Date().toISOString(), color: "#e1f4ec" },
+  { id: "AD-1047", name: "Priya Sharma", company: "Aster Living", source: "Meta Ads", status: "Contacted", score: 78, owner: "RK", date: "Today, 09:18 AM", createdAt: new Date().toISOString(), color: "#fff1dd" },
+  { id: "AD-1046", name: "Arjun Kapoor", company: "Kapoor & Sons", source: "Referral", status: "New", score: 61, owner: "—", date: "Yesterday, 04:32 PM", createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), color: "#e8e4ff" },
+  { id: "AD-1045", name: "Sneha Iyer", company: "Iyer Enterprises", source: "Google Search", status: "Follow-up", score: 84, owner: "AS", date: "Yesterday, 02:06 PM", createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), color: "#fde2e3" },
+  { id: "AD-1044", name: "Vikram Singh", company: "Northstar Homes", source: "Website", status: "Won", score: 97, owner: "RK", date: "Oct 28, 2024", createdAt: "2024-10-28T10:00:00.000Z", color: "#dceefd" },
 ];
 
 const publicMarketingPaths = new Set(["/", "/features", "/pricing", "/about", "/contact", "/integrations", "/faq", "/privacy", "/terms", "/cookies"]);
@@ -107,6 +109,17 @@ function App() {
   const [totalLeadCount, setTotalLeadCount] = useState(isSupabaseConfigured ? 0 : initialLeads.length);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [leadDateFilter, setLeadDateFilter] = useState<LeadDateFilter>("all");
+  const [leadStartDate, setLeadStartDate] = useState("");
+  const [leadEndDate, setLeadEndDate] = useState("");
+  const leadDateFilterError = useMemo(() => {
+    try {
+      getLeadDateBounds(leadDateFilter, leadStartDate, leadEndDate);
+      return "";
+    } catch (error) {
+      return error instanceof Error ? error.message : "The lead date filter is invalid.";
+    }
+  }, [leadDateFilter, leadStartDate, leadEndDate]);
   const [isLoadingMoreLeads, setIsLoadingMoreLeads] = useState(false);
   const [isLoadingLeads, setIsLoadingLeads] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -125,6 +138,10 @@ function App() {
   const [performance, setPerformance] = useState<PersonalPerformance | null>(null);
   const [leadTrend, setLeadTrend] = useState<LeadTrendPoint[]>([]);
   const [isLoadingLeadTrend, setIsLoadingLeadTrend] = useState(false);
+  const [leadTrendDays, setLeadTrendDays] = useState(30);
+  const [duplicateLeadSummary, setDuplicateLeadSummary] = useState<DuplicateLeadSummary>({ duplicateCount: 0, leads: [] });
+  const [isLoadingDuplicateLeads, setIsLoadingDuplicateLeads] = useState(false);
+  const [duplicateLeadError, setDuplicateLeadError] = useState("");
   const [operationLeads, setOperationLeads] = useState<LeadRecord[]>([]);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [membershipLoaded, setMembershipLoaded] = useState(false);
@@ -232,6 +249,10 @@ function App() {
     setPerformance(null);
     setLeadTrend([]);
     setIsLoadingLeadTrend(false);
+    setLeadTrendDays(30);
+    setDuplicateLeadSummary({ duplicateCount: 0, leads: [] });
+    setIsLoadingDuplicateLeads(false);
+    setDuplicateLeadError("");
     setOperationLeads([]);
     setUnreadNotifications(0);
     setLeads(isSupabaseConfigured ? [] : initialLeads);
@@ -239,6 +260,9 @@ function App() {
     setTeamNames([]);
     setMembershipError("");
     setQuery("");
+    setLeadDateFilter("all");
+    setLeadStartDate("");
+    setLeadEndDate("");
     setView("Overview");
     setSidebarOpen(false);
     setShowLeadForm(false);
@@ -376,12 +400,37 @@ function App() {
     }
     let active = true;
     setIsLoadingLeadTrend(true);
-    void getOrganizationLeadTrend(membership.organization_id).then((points) => {
+    void getOrganizationLeadTrend(membership.organization_id, leadTrendDays).then((points) => {
       if (active) setLeadTrend(points);
     }).catch((error) => {
       if (active) notify(error instanceof Error ? error.message : "Lead growth data could not be loaded.");
     }).finally(() => {
       if (active) setIsLoadingLeadTrend(false);
+    });
+    return () => { active = false; };
+  }, [membership?.organization_id, membership?.role, session?.user.id, view, leadTrendDays]);
+
+  useEffect(() => {
+    if (!supabase || !session || !membership || membership.role === "super_admin" || view !== "Overview") {
+      setDuplicateLeadSummary({ duplicateCount: 0, leads: [] });
+      setIsLoadingDuplicateLeads(false);
+      setDuplicateLeadError("");
+      return;
+    }
+    let active = true;
+    setDuplicateLeadSummary({ duplicateCount: 0, leads: [] });
+    setDuplicateLeadError("");
+    setIsLoadingDuplicateLeads(true);
+    void getOrganizationDuplicateLeads(membership.organization_id).then((summary) => {
+      if (active) setDuplicateLeadSummary(summary);
+    }).catch((error) => {
+      if (active) {
+        const message = error instanceof Error ? error.message : "Duplicate leads could not be loaded.";
+        setDuplicateLeadError(message);
+        notify(message);
+      }
+    }).finally(() => {
+      if (active) setIsLoadingDuplicateLeads(false);
     });
     return () => { active = false; };
   }, [membership?.organization_id, membership?.role, session?.user.id, view]);
@@ -429,7 +478,18 @@ function App() {
     const controller = new AbortController();
     leadPageAbort.current = controller;
     setIsLoadingLeads(true);
-    void listLeadsPage(debouncedQuery, { offset: 0, limit: LEAD_PAGE_SIZE, includeTotal: true, signal: controller.signal }).then((page) => {
+    let dateBounds = {};
+    if (view === "Leads") {
+      if (leadDateFilterError) {
+        setOperationLeads([]);
+        setLeads([]);
+        setTotalLeadCount(0);
+        setIsLoadingLeads(false);
+        return () => { controller.abort(); };
+      }
+      dateBounds = getLeadDateBounds(leadDateFilter, leadStartDate, leadEndDate);
+    }
+    void listLeadsPage(debouncedQuery, { ...dateBounds, offset: 0, limit: LEAD_PAGE_SIZE, includeTotal: true, signal: controller.signal }).then((page) => {
       if (!active) return;
       setOperationLeads(page.records);
       setLeads(page.records.map(toUiLead));
@@ -444,16 +504,20 @@ function App() {
       controller.abort();
       loadMoreAbort.current?.abort();
     };
-  }, [debouncedQuery, leadImportRefresh, session?.user.id, membership?.organization_id, membership?.role, routePath, view]);
+  }, [debouncedQuery, leadDateFilter, leadStartDate, leadEndDate, leadDateFilterError, leadImportRefresh, session?.user.id, membership?.organization_id, membership?.role, routePath, view]);
 
   const loadMoreLeads = async (): Promise<boolean> => {
-    if (!supabase || !membership || isLoadingMoreLeads || operationLeads.length >= totalLeadCount) return false;
+    if (!supabase || !membership || isLoadingMoreLeads || (view === "Leads" && leadDateFilterError) || operationLeads.length >= totalLeadCount) return false;
     loadMoreAbort.current?.abort();
     const controller = new AbortController();
     loadMoreAbort.current = controller;
     setIsLoadingMoreLeads(true);
     try {
+      const dateBounds = view === "Leads"
+        ? getLeadDateBounds(leadDateFilter, leadStartDate, leadEndDate)
+        : {};
       const page = await listLeadsPage(debouncedQuery, {
+        ...dateBounds,
         offset: operationLeads.length,
         limit: LEAD_PAGE_SIZE,
         includeTotal: false,
@@ -473,9 +537,21 @@ function App() {
     }
   };
 
-  const filteredLeads = useMemo(() => isSupabaseConfigured ? leads : leads.filter((lead) =>
-    `${lead.name} ${lead.company} ${lead.id} ${lead.source}`.toLowerCase().includes(query.toLowerCase()),
-  ), [leads, query]);
+  const filteredLeads = useMemo(() => {
+    if (isSupabaseConfigured) return leads;
+    const searchMatches = leads.filter((lead) =>
+      `${lead.name} ${lead.company} ${lead.id} ${lead.source}`.toLowerCase().includes(query.toLowerCase()),
+    );
+    if (view !== "Leads") return searchMatches;
+    if (leadDateFilterError) return [];
+    const bounds = getLeadDateBounds(leadDateFilter, leadStartDate, leadEndDate);
+    return searchMatches.filter((lead) => {
+      if (!lead.createdAt) return false;
+      const createdAt = new Date(lead.createdAt).getTime();
+      return (!bounds.createdAfter || createdAt >= new Date(bounds.createdAfter).getTime())
+        && (!bounds.createdBefore || createdAt < new Date(bounds.createdBefore).getTime());
+    });
+  }, [leads, query, view, leadDateFilter, leadStartDate, leadEndDate, leadDateFilterError]);
 
   const notify = useCallback((message: string) => {
     setToast(message);
@@ -646,8 +722,8 @@ function App() {
           {view === "Automation" && membership && <AutomationView membership={membership} onNotify={notify} />}
           {view === "Sales Pipeline" && membership && <SalesPipelineView membership={membership} onNotify={notify} />}
           {view === "Customer 360" && membership && <Customer360View membership={membership} onNotify={notify} />}
-          {view === "Overview" && <Overview leads={leads} totalLeadCount={totalLeadCount} trend={leadTrend} isLoadingTrend={isLoadingLeadTrend} performance={performance} role={membership?.role} organizationName={organizationProfile?.name || ""} teamNames={teamNames} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => navigateToPath("/org/leads")} onOpenLead={(id) => void loadLeadDetails(id)} />}
-          {view === "Leads" && <LeadsView leads={filteredLeads} totalCount={totalLeadCount} isLoading={isLoadingLeads} isSearchPending={query.trim() !== debouncedQuery} isLoadingMore={isLoadingMoreLeads} hasMore={Boolean(supabase) && operationLeads.length < totalLeadCount} onLoadMore={() => void loadMoreLeads()} query={query} onAdd={() => setShowLeadForm(true)} canImport={membership?.role === "company_owner" || membership?.role === "organization_admin"} onImport={() => setShowLeadImport(true)} onOpen={(externalId) => void loadLeadDetails(externalId)} onTransfer={(externalId) => void loadLeadDetails(externalId, "transfer")} onStatusChange={async (id, status) => { try { if (supabase) await updateLeadStatus(id, status.toLowerCase().replace("-", "_") as LeadStatus); setLeads((all) => all.map((lead) => lead.id === id ? { ...lead, status } : lead)); notify("Lead status updated"); } catch (error) { notify(error instanceof Error ? error.message : "Could not update lead"); } }} />}
+          {view === "Overview" && <Overview leads={leads} totalLeadCount={totalLeadCount} trend={leadTrend} isLoadingTrend={isLoadingLeadTrend} leadTrendDays={leadTrendDays} onLeadTrendDaysChange={setLeadTrendDays} duplicateLeadSummary={duplicateLeadSummary} isLoadingDuplicateLeads={isLoadingDuplicateLeads} duplicateLeadError={duplicateLeadError} performance={performance} role={membership?.role} organizationName={organizationProfile?.name || ""} teamNames={teamNames} userName={String(session.user.user_metadata?.full_name || session.user.email || "").split("@")[0].split(/\s+/)[0]} onAdd={() => setShowLeadForm(true)} onViewLeads={() => navigateToPath("/org/leads")} onOpenLead={(id) => void loadLeadDetails(id)} />}
+          {view === "Leads" && <LeadsView leads={filteredLeads} totalCount={isSupabaseConfigured ? totalLeadCount : filteredLeads.length} isLoading={isLoadingLeads} isSearchPending={query.trim() !== debouncedQuery} isLoadingMore={isLoadingMoreLeads} hasMore={Boolean(supabase) && !leadDateFilterError && operationLeads.length < totalLeadCount} onLoadMore={() => void loadMoreLeads()} query={query} dateFilter={leadDateFilter} startDate={leadStartDate} endDate={leadEndDate} dateFilterError={leadDateFilterError} onDateFilterChange={setLeadDateFilter} onStartDateChange={setLeadStartDate} onEndDateChange={setLeadEndDate} onAdd={() => setShowLeadForm(true)} canImport={membership?.role === "company_owner" || membership?.role === "organization_admin"} onImport={() => setShowLeadImport(true)} onOpen={(externalId) => void loadLeadDetails(externalId)} onTransfer={(externalId) => void loadLeadDetails(externalId, "transfer")} onStatusChange={async (id, status) => { try { if (supabase) await updateLeadStatus(id, status.toLowerCase().replace("-", "_") as LeadStatus); setLeads((all) => all.map((lead) => lead.id === id ? { ...lead, status } : lead)); notify("Lead status updated"); } catch (error) { notify(error instanceof Error ? error.message : "Could not update lead"); } }} />}
           {view === "Campaigns" && (isSupabaseConfigured ? <ModulePending eyebrow="CAMPAIGN MANAGEMENT" title="Campaigns" description="Campaign records will appear here after the campaign repository is connected." icon={<Target size={24} />} /> : <Campaigns onNotify={notify} />)}
           {view === "Follow-ups" && (membership ? <FollowUpsView membership={membership} leads={operationLeads} onNotify={notify} /> : <ModulePending eyebrow="FOLLOW-UP QUEUE" title="Follow-ups" description="An authenticated organization membership is required." icon={<ClipboardList size={24} />} />)}
           {view === "Calling" && <CallingWorkspace leads={filteredLeads} membership={membership} hasMore={Boolean(supabase) && operationLeads.length < totalLeadCount} isLoadingMore={isLoadingMoreLeads} onLoadMore={loadMoreLeads} onNotify={notify} />}
@@ -681,7 +757,7 @@ function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; 
 
 function toUiLead(record: LeadRecord): Lead {
   const statusMap: Record<LeadStatus, Status> = { new: "New", contacted: "Contacted", qualified: "Qualified", follow_up: "Follow-up", won: "Won", lost: "Follow-up" };
-  return { id: record.external_id, dbId: record.id, phone: record.phone, name: record.full_name, company: record.company || "New account", source: record.source, status: statusMap[record.status], score: record.score, owner: record.assigned_to ? record.assigned_to.slice(0, 2).toUpperCase() : "—", date: new Date(record.created_at).toLocaleString(), color: "#e1f4ec" };
+  return { id: record.external_id, dbId: record.id, phone: record.phone, name: record.full_name, company: record.company || "New account", source: record.source, status: statusMap[record.status], score: record.score, owner: record.assigned_to ? record.assigned_to.slice(0, 2).toUpperCase() : "—", date: new Date(record.created_at).toLocaleString(), createdAt: record.created_at, color: "#e1f4ec" };
 }
 
 function ModulePending({ eyebrow, title, description, icon }: { eyebrow: string; title: string; description: string; icon: React.ReactNode }) {
@@ -839,11 +915,16 @@ function ResetPasswordScreen() {
   return <form className="modal auth-card" onSubmit={submit}><div className="brand auth-brand"><div className="brand-mark">A</div><span>adometa</span></div><p className="eyebrow">PASSWORD RESET</p><h1>Choose a new password</h1><p className="muted">Use a strong password for your secure workspace.</p><label>New password<input required minLength={8} type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{message && <p className="auth-message">{message}</p>}<button className="button primary auth-submit" disabled={busy}>{busy ? "Saving..." : "Update password"}</button><a className="text-button auth-toggle" href="/login">Back to sign in</a></form>;
 }
 
-function Overview({ leads, totalLeadCount, trend, isLoadingTrend, performance, role, organizationName, teamNames, onAdd, onViewLeads, onOpenLead, userName }: {
+function Overview({ leads, totalLeadCount, trend, isLoadingTrend, leadTrendDays, onLeadTrendDaysChange, duplicateLeadSummary, isLoadingDuplicateLeads, duplicateLeadError, performance, role, organizationName, teamNames, onAdd, onViewLeads, onOpenLead, userName }: {
   leads: Lead[];
   totalLeadCount: number;
   trend: LeadTrendPoint[];
   isLoadingTrend: boolean;
+  leadTrendDays: number;
+  onLeadTrendDaysChange: (days: number) => void;
+  duplicateLeadSummary: DuplicateLeadSummary;
+  isLoadingDuplicateLeads: boolean;
+  duplicateLeadError: string;
   performance: PersonalPerformance | null;
   role?: "super_admin" | "company_owner" | "organization_admin" | "manager" | "agent" | "auditor";
   organizationName: string;
@@ -863,6 +944,7 @@ function Overview({ leads, totalLeadCount, trend, isLoadingTrend, performance, r
     { label: "New this week", value: newThisWeek.toLocaleString(), icon: TrendingUp, tone: "green", note: "Added in the last 7 days" },
     { label: "Qualified", value: qualified.toLocaleString(), icon: Target, tone: "blue", note: "Current pipeline stage" },
     { label: "Won", value: won.toLocaleString(), icon: Check, tone: "amber", note: "Successfully converted" },
+    { label: "Duplicate leads", value: isLoadingDuplicateLeads ? "…" : duplicateLeadError ? "—" : duplicateLeadSummary.duplicateCount.toLocaleString(), icon: Copy, tone: "purple", note: "Matching phone or email" },
   ];
   const pipeline = [
     ["New", statuses.new ?? 0, "purple"],
@@ -912,7 +994,7 @@ function Overview({ leads, totalLeadCount, trend, isLoadingTrend, performance, r
     </section>}
     <div className="stats-grid lead-stats-grid">{stats.map(({ label, value, icon: Icon, tone, note }) => <article className="stat-card lead-stat-card" key={label}><div className="stat-top"><span>{label}</span><div className={`stat-icon ${tone}`}><Icon size={17} /></div></div><strong>{value}</strong><div className="stat-foot"><span className="lead-stat-dot" /> <small>{note}</small></div></article>)}</div>
     <div className="lead-dashboard-grid">
-      <LeadTrendChart points={trend} loading={isLoadingTrend} />
+      <LeadTrendChart points={trend} loading={isLoadingTrend} days={leadTrendDays} onDaysChange={onLeadTrendDaysChange} />
       <section className="card pipeline-card lead-pipeline-card">
         <div className="card-header"><div><p className="eyebrow">PIPELINE</p><h2>Lead stages</h2><p>Current status across all active leads</p></div><button className="text-button" onClick={onViewLeads}>View leads <ArrowUpRight size={15} /></button></div>
         <div className="funnel">{pipeline.map(([stage, stageCount, color]) => {
@@ -921,6 +1003,17 @@ function Overview({ leads, totalLeadCount, trend, isLoadingTrend, performance, r
         })}</div>
       </section>
     </div>
+    <section className="card duplicate-leads-card">
+      <div className="card-header">
+        <div><p className="eyebrow">DATA QUALITY</p><h2>Duplicate leads</h2><p>Leads sharing a phone number or email address.</p></div>
+        <span className="duplicate-leads-count">{isLoadingDuplicateLeads ? "Checking…" : duplicateLeadError ? "Unavailable" : `${duplicateLeadSummary.duplicateCount} found`}</span>
+      </div>
+      {duplicateLeadError ? <div className="duplicate-leads-empty" role="alert">Duplicate leads could not be loaded. {duplicateLeadError}</div>
+        : isLoadingDuplicateLeads ? <div className="duplicate-leads-empty" role="status">Checking for matching contact details…</div>
+        : duplicateLeadSummary.leads.length ? <div className="duplicate-leads-list">{duplicateLeadSummary.leads.map((lead) => <DuplicateLeadRow key={lead.id} lead={lead} onOpen={onOpenLead} />)}</div>
+          : <div className="duplicate-leads-empty"><Copy size={18} /><span>No duplicate leads detected.</span></div>}
+      {duplicateLeadSummary.duplicateCount > duplicateLeadSummary.leads.length && <p className="duplicate-leads-more">Showing {duplicateLeadSummary.leads.length} of {duplicateLeadSummary.duplicateCount} duplicate leads.</p>}
+    </section>
     <section className="card table-card lead-recent-card">
       <div className="card-header"><div><p className="eyebrow">RECENT ACTIVITY</p><h2>Recently added leads</h2><p>Open any lead to review its complete track record.</p></div><button className="text-button" onClick={onViewLeads}>View all leads <ArrowUpRight size={15} /></button></div>
       <LeadTable leads={leads.slice(0, 6)} compact onOpen={onOpenLead} />
@@ -928,9 +1021,19 @@ function Overview({ leads, totalLeadCount, trend, isLoadingTrend, performance, r
   </>;
 }
 
-function LeadsView({ leads, totalCount, isLoading, isSearchPending, isLoadingMore, hasMore, onLoadMore, query, onAdd, canImport, onImport, onOpen, onTransfer, onStatusChange }: { leads: Lead[]; totalCount: number; isLoading: boolean; isSearchPending: boolean; isLoadingMore: boolean; hasMore: boolean; onLoadMore: () => void; query: string; onAdd: () => void; canImport: boolean; onImport: () => void; onOpen: (id: string) => void; onTransfer: (id: string) => void; onStatusChange: (id: string, status: Status) => void }) {
+function DuplicateLeadRow({ lead, onOpen }: { lead: DuplicateLeadPreview; onOpen: (id: string) => void }) {
+  const contact = lead.email || lead.phone || "No contact details";
+  return <button className="duplicate-lead-row" onClick={() => onOpen(lead.external_id)}>
+    <span className="duplicate-lead-avatar"><Copy size={14} /></span>
+    <span className="duplicate-lead-info"><strong>{lead.full_name}</strong><small>{contact}</small></span>
+    <span className="duplicate-lead-source">{lead.source}</span>
+    <ArrowUpRight size={15} />
+  </button>;
+}
+
+function LeadsView({ leads, totalCount, isLoading, isSearchPending, isLoadingMore, hasMore, onLoadMore, query, dateFilter, startDate, endDate, dateFilterError, onDateFilterChange, onStartDateChange, onEndDateChange, onAdd, canImport, onImport, onOpen, onTransfer, onStatusChange }: { leads: Lead[]; totalCount: number; isLoading: boolean; isSearchPending: boolean; isLoadingMore: boolean; hasMore: boolean; onLoadMore: () => void; query: string; dateFilter: LeadDateFilter; startDate: string; endDate: string; dateFilterError: string; onDateFilterChange: (filter: LeadDateFilter) => void; onStartDateChange: (date: string) => void; onEndDateChange: (date: string) => void; onAdd: () => void; canImport: boolean; onImport: () => void; onOpen: (id: string) => void; onTransfer: (id: string) => void; onStatusChange: (id: string, status: Status) => void }) {
   const isRefreshing = isLoading || isSearchPending;
-  return <><PageHeader eyebrow="LEAD MANAGEMENT" title="Leads" description={isRefreshing && leads.length ? "Updating results; the previous result set remains visible." : `Showing ${leads.length} of ${totalCount} matching authorized leads.`} action={<div className="page-actions">{canImport && <button className="button secondary" onClick={onImport}><Upload size={16} /> Import CSV</button>}<button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} /><div className="toolbar"><div className="filter-search"><Search size={17} /><input placeholder="Search leads..." value={query} readOnly /></div><button className="button secondary"><Filter size={16} /> Filters <span className="filter-count">2</span></button><button className="button secondary"><CalendarDays size={16} /> Date added <ChevronDown size={15} /></button></div><section className="card table-card">{isLoading && !leads.length ? <div className="route-loading" role="status">Loading leads…</div> : <LeadTable leads={leads} onOpen={onOpen} onTransfer={onTransfer} onStatusChange={onStatusChange} />}{hasMore && <div className="lead-pagination"><button className="button secondary" disabled={isLoadingMore} onClick={onLoadMore}>{isLoadingMore ? "Loading…" : `Load more (${totalCount - leads.length} remaining)`}</button></div>}</section></>;
+  return <><PageHeader eyebrow="LEAD MANAGEMENT" title="Leads" description={isRefreshing && leads.length ? "Updating results; the previous result set remains visible." : `Showing ${leads.length} of ${totalCount} matching authorized leads.`} action={<div className="page-actions">{canImport && <button className="button secondary" onClick={onImport}><Upload size={16} /> Import CSV</button>}<button className="button primary" onClick={onAdd}><Plus size={17} /> Add lead</button></div>} /><div className="toolbar"><div className="filter-search"><Search size={17} /><input placeholder="Search leads..." value={query} readOnly /></div><label className="lead-filter-control"><Filter size={16} /><span>Lead menu</span><select aria-label="Filter leads by age or date" value={dateFilter} onChange={(event) => onDateFilterChange(event.target.value as LeadDateFilter)}><option value="all">All leads</option><option value="new">New leads · last 7 days</option><option value="old">Old leads · over 7 days</option><option value="custom">Custom date range</option></select></label>{dateFilter === "custom" && <div className="lead-date-range"><label>From<input aria-label="Start date" type="date" value={startDate} max={endDate || undefined} onChange={(event) => onStartDateChange(event.target.value)} /></label><label>To<input aria-label="End date" type="date" value={endDate} min={startDate || undefined} onChange={(event) => onEndDateChange(event.target.value)} /></label></div>}{dateFilterError && <p className="lead-filter-error" role="alert">{dateFilterError}</p>}</div><section className="card table-card">{isLoading && !leads.length ? <div className="route-loading" role="status">Loading leads…</div> : <LeadTable leads={leads} onOpen={onOpen} onTransfer={onTransfer} onStatusChange={onStatusChange} />}{hasMore && <div className="lead-pagination"><button className="button secondary" disabled={isLoadingMore} onClick={onLoadMore}>{isLoadingMore ? "Loading…" : `Load more (${totalCount - leads.length} remaining)`}</button></div>}</section></>;
 }
 
 function LeadTable({ leads, compact = false, onOpen, onTransfer, onStatusChange }: { leads: Lead[]; compact?: boolean; onOpen?: (id: string) => void; onTransfer?: (id: string) => void; onStatusChange?: (id: string, status: Status) => void }) {

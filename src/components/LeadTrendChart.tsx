@@ -4,7 +4,7 @@ const chartWidth = 760;
 const chartHeight = 250;
 const margins = { top: 18, right: 18, bottom: 36, left: 48 };
 
-export function LeadTrendChart({ points, loading }: { points: LeadTrendPoint[]; loading: boolean }) {
+export function LeadTrendChart({ points, loading, days, onDaysChange }: { points: LeadTrendPoint[]; loading: boolean; days: number; onDaysChange: (days: number) => void }) {
   const width = chartWidth - margins.left - margins.right;
   const height = chartHeight - margins.top - margins.bottom;
   const values = points.map((point) => point.cumulative_leads);
@@ -22,7 +22,14 @@ export function LeadTrendChart({ points, loading }: { points: LeadTrendPoint[]; 
 
   return <section className="card lead-trend-card" aria-labelledby="lead-trend-title">
     <div className="card-header">
-      <div><p className="eyebrow">LEAD GROWTH</p><h2 id="lead-trend-title">Total leads over time</h2><p>Organization-wide lead total · last 30 days</p></div>
+      <div><p className="eyebrow">LEAD GROWTH</p><h2 id="lead-trend-title">Total leads over time</h2><p>Organization-wide lead total · date-wise lead activity</p></div>
+      <label className="lead-trend-range">Period
+        <select aria-label="Lead growth date range" value={days} onChange={(event) => onDaysChange(Number(event.target.value))}>
+          <option value={7}>Last 7 days</option>
+          <option value={30}>Last 30 days</option>
+          <option value={90}>Last 90 days</option>
+        </select>
+      </label>
       <span className="trend-total">{points.length ? points[points.length - 1].cumulative_leads : 0}<small>current total</small></span>
     </div>
     {loading ? <p className="muted" role="status">Loading lead trend…</p> : points.length ? <>
@@ -40,6 +47,14 @@ export function LeadTrendChart({ points, loading }: { points: LeadTrendPoint[]; 
         </svg>
       </div>
       <div className="lead-trend-legend"><span><i /> Total leads</span><small>Hover/tap a point for daily new lead details</small></div>
+      <div className="lead-daily-table" aria-label="Date-wise new leads">
+        <div className="lead-daily-table-head"><span>Date</span><span>New leads</span><span>Total leads</span></div>
+        {[...points].reverse().slice(0, 7).map((point) => <div className="lead-daily-row" key={point.activity_date}>
+          <span>{new Date(`${point.activity_date}T00:00:00`).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}</span>
+          <strong>{point.new_leads}</strong>
+          <span>{point.cumulative_leads}</span>
+        </div>)}
+      </div>
     </> : <div className="lead-trend-empty"><strong>No lead history yet</strong><span>As leads are added, their growth will appear here.</span></div>}
   </section>;
 }

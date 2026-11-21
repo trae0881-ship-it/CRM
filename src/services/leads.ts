@@ -7,6 +7,8 @@ import type { LeadCsvRecord } from "../lib/leadCsvImport";
 export type CreateLeadInput = Pick<LeadRecord, "full_name"> & Partial<Omit<LeadRecord, "id" | "organization_id" | "created_at" | "updated_at" | "external_id">>;
 export type LeadPage = { records: LeadRecord[]; totalCount: number | null };
 export type LeadTrendPoint = { activity_date: string; new_leads: number; cumulative_leads: number; status_counts: Record<string, number> };
+export type DuplicateLeadPreview = { id: string; external_id: string; full_name: string; phone: string | null; email: string | null; source: string };
+export type DuplicateLeadSummary = { duplicateCount: number; leads: DuplicateLeadPreview[] };
 
 const requireClient = () => {
   if (!supabase) throw new Error("Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.");
@@ -15,13 +17,15 @@ const requireClient = () => {
 
 export async function listLeadsPage(
   search = "",
-  options: { offset?: number; limit?: number; includeTotal?: boolean; signal?: AbortSignal } = {},
+  options: { offset?: number; limit?: number; includeTotal?: boolean; signal?: AbortSignal; createdAfter?: string; createdBefore?: string } = {},
 ): Promise<LeadPage> {
   const client = requireClient();
   const offset = Math.max(0, Math.floor(options.offset ?? 0));
   const limit = Math.min(100, Math.max(1, Math.floor(options.limit ?? 50)));
   let query = client.from("leads").select("*", options.includeTotal === false ? undefined : { count: "exact" }).is("deleted_at", null).order("created_at", { ascending: false });
   if (search.trim()) query = query.or(buildLeadSearchFilter(search));
+  if (options.createdAfter) query = query.gte("created_at", options.createdAfter);
+  if (options.createdBefore) query = query.lt("created_at", options.createdBefore);
   let pageQuery = query.range(offset, offset + limit - 1);
   if (options.signal) pageQuery = pageQuery.abortSignal(options.signal);
   const { data, count, error } = await pageQuery;
@@ -49,6 +53,39 @@ export async function getOrganizationLeadTrend(organizationId: string, days = 30
       ? Object.fromEntries(Object.entries(row.status_counts).map(([status, count]) => [status, Number(count)]))
       : {},
   }));
+}
+
+export async function getOrganizationDuplicateLeads(organizationId: string): Promise<DuplicateLeadSummary> {
+  const { data, error } = await requireClient().rpc("get_organization_duplicate_leads", {
+    target_organization: organizationId,
+    result_limit: 8,
+  });
+  if (error) throw error;
+  const row = data?.[0] as { duplicate_lead_count?: unknown; duplicate_leads?: unknown } | undefined;
+  if (!row || typeof row.duplicate_lead_count !== "number" && typeof row.duplicate_lead_count !== "string" || !Array.isArray(row.duplicate_leads)) {
+    throw new Error("Duplicate lead summary returned an invalid response.");
+  }
+  const leads = row.duplicate_leads.map((value): DuplicateLeadPreview => {
+    if (!value || typeof value !== "object") throw new Error("Duplicate lead summary returned an invalid lead.");
+    const lead = value as Record<string, unknown>;
+    if (typeof lead.id !== "string" || typeof lead.external_id !== "string" || typeof lead.full_name !== "string" || typeof lead.source !== "string") {
+      throw new Error("Duplicate lead summary returned an invalid lead.");
+    }
+    if (lead.phone !== null && typeof lead.phone !== "string" || lead.email !== null && typeof lead.email !== "string") {
+      throw new Error("Duplicate lead summary returned invalid contact details.");
+    }
+    return {
+      id: lead.id,
+      external_id: lead.external_id,
+      full_name: lead.full_name,
+      phone: lead.phone,
+      email: lead.email,
+      source: lead.source,
+    };
+  });
+  const duplicateCount = Number(row.duplicate_lead_count);
+  if (!Number.isSafeInteger(duplicateCount) || duplicateCount < 0) throw new Error("Duplicate lead summary returned an invalid count.");
+  return { duplicateCount, leads };
 }
 
 export async function createLead(input: CreateLeadInput): Promise<LeadRecord> {
