@@ -14,9 +14,11 @@ type OrganizationStatus = {
   failed: number;
   lastSuccessfulSyncAt: string | null;
 };
+type DatabaseTableUsage = { tableName: string; tableBytes: number; indexBytes: number; totalBytes: number };
+type DatabaseUsage = { databaseBytes: number | null; tables: DatabaseTableUsage[]; errorCode: string | null };
 type Health = {
-  supabase: { connected: boolean; errorCode: string | null };
-  mysql: { connected: boolean; errorCode: string | null };
+  supabase: { connected: boolean; errorCode: string | null } & DatabaseUsage;
+  mysql: { connected: boolean; errorCode: string | null } & DatabaseUsage;
   synchronization: {
     available: boolean;
     pending: number;
@@ -36,6 +38,7 @@ const apiBase = import.meta.env.VITE_DATABASE_API_URL?.trim().replace(/\/+$/, ""
 export function DatabaseMonitoringView({ membership, session, onNotify }: Props) {
   const [health, setHealth] = useState<Health | null>(null);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [busyOrganization, setBusyOrganization] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const isPlatformAdmin = membership.role === "super_admin" && membership.is_active;
@@ -88,6 +91,49 @@ export function DatabaseMonitoringView({ membership, session, onNotify }: Props)
     }
   };
 
+  const exportDatabase = async () => {
+    if (!isPlatformAdmin || !session || !apiBase || !supabase) return;
+    if (!window.confirm("Download all CRM business data across organizations? Authentication records and credential secrets will be excluded.")) return;
+    setExporting(true);
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) throw new Error("Your verified platform session could not be refreshed.");
+      const response = await fetch(`${apiBase}/database/export`, {
+        headers: { authorization: `Bearer ${data.session.access_token}` },
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(result?.error || "The database export could not be downloaded.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `adometa-data-export-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      onNotify("The table-wise CRM data export has been downloaded. It excludes authentication and credential secrets.");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "The database export could not be downloaded.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const formatBytes = (value: number | null | undefined) => {
+    if (value === null || value === undefined || !Number.isFinite(value)) return "Unavailable";
+    if (value < 1024) return `${value} B`;
+    const units = ["KB", "MB", "GB", "TB"];
+    let size = value / 1024;
+    let unit = 0;
+    while (size >= 1024 && unit < units.length - 1) {
+      size /= 1024;
+      unit += 1;
+    }
+    return `${size.toFixed(2)} ${units[unit]}`;
+  };
+
   if (!isPlatformAdmin) return <section className="card pending-module"><ShieldAlert size={24} /><h2>Platform administrator access required</h2></section>;
   if (!apiBase) return <><header className="page-header"><div><p className="eyebrow">DATABASE OPERATIONS</p><h1>Database monitoring</h1><p className="muted">Server-verified Supabase and MySQL replication status.</p></div></header><section className="card database-blocked"><ShieldAlert size={22} /><div><strong>Monitoring API is not configured</strong><p>Set the public API origin in VITE_DATABASE_API_URL and configure the server-side database service separately.</p></div></section></>;
 
@@ -97,9 +143,28 @@ export function DatabaseMonitoringView({ membership, session, onNotify }: Props)
   </section>;
 
   return <>
-    <header className="page-header"><div><p className="eyebrow">DATABASE OPERATIONS</p><h1>Database monitoring</h1><p className="muted">Server-verified database status and Supabase-to-MySQL synchronization.</p></div><button className="button secondary" onClick={() => void loadHealth()} disabled={loading}><RefreshCw size={15} />{loading ? "Refreshing…" : "Refresh"}</button></header>
+    <header className="page-header"><div><p className="eyebrow">DATABASE OPERATIONS</p><h1>Database monitoring</h1><p className="muted">Server-verified storage and Supabase-to-MySQL synchronization.</p></div><div className="database-header-actions"><button className="button secondary" onClick={() => void loadHealth()} disabled={loading}><RefreshCw size={15} />{loading ? "Refreshing…" : "Refresh"}</button><button className="button primary" onClick={() => void exportDatabase()} disabled={exporting || loading}><Database size={15} />{exporting ? "Preparing export…" : "Download all CRM tables"}</button></div></header>
     {errorMessage && <section className="database-error" role="alert"><ShieldAlert size={17} />{errorMessage}</section>}
     <div className="database-status-grid">{stateCard("Supabase PostgreSQL", health?.supabase.connected, health?.supabase.errorCode)}{stateCard("MySQL replica", health?.mysql.connected, health?.mysql.errorCode)}{stateCard("Synchronization", health?.synchronization.available, health?.synchronization.lastErrorCode)}</div>
+    <div className="stats-grid database-sync-stats">
+      <div className="stat-card"><div className="stat-top"><span>Supabase database storage</span><Database size={16} /></div><strong>{formatBytes(health?.supabase.databaseBytes)}</strong></div>
+      <div className="stat-card"><div className="stat-top"><span>MySQL replica storage</span><Database size={16} /></div><strong>{formatBytes(health?.mysql.databaseBytes)}</strong></div>
+      <div className="stat-card"><div className="stat-top"><span>Hosting bandwidth</span><Activity size={16} /></div><strong>Provider API required</strong><small>Not available from database metrics alone</small></div>
+    </div>
+    <section className="database-provider-note"><ShieldAlert size={17} /><span>Hosting bandwidth for Hostinger, Vercel, or Railway requires a separate provider API connection. No hosting credentials are collected or exposed by this database monitor.</span></section>
+    <section className="database-usage-grid">
+      {([
+        ["Supabase PostgreSQL tables", health?.supabase],
+        ["MySQL replica tables", health?.mysql],
+      ] as const).map(([title, usage]) => <section className="card table-card database-usage-card" key={title}>
+        <div className="card-header"><div><h2>{title}</h2><p>{usage?.tables.length ?? 0} tables with size details</p></div><strong>{formatBytes(usage?.databaseBytes)}</strong></div>
+        {usage?.errorCode && <p className="database-usage-error">Table storage details unavailable ({usage.errorCode}). Verify the database connection, required migration, and server permissions.</p>}
+        <div className="table-scroll"><table><thead><tr><th>TABLE</th><th>TABLE DATA</th><th>INDEXES</th><th>TOTAL</th></tr></thead><tbody>
+          {(usage?.tables ?? []).map((table) => <tr key={table.tableName}><td>{table.tableName}</td><td>{formatBytes(table.tableBytes)}</td><td>{formatBytes(table.indexBytes)}</td><td>{formatBytes(table.totalBytes)}</td></tr>)}
+        </tbody></table>{!usage?.tables.length && <p className="muted database-table-empty">No table storage details available.</p>}</div>
+      </section>)}
+    </section>
+    <section className="database-export-note"><strong>About this export</strong><span>Downloads table-wise CRM business data as JSON. It is not a physical database backup or schema migration; authentication records and credential secrets are excluded. Export requests are audited.</span></section>
     <section className="stats-grid database-sync-stats">
       <div className="stat-card"><div className="stat-top"><span>Pending events</span><Activity size={16} /></div><strong>{health?.synchronization.pending ?? "—"}</strong></div>
       <div className="stat-card"><div className="stat-top"><span>Failed events</span><ShieldAlert size={16} /></div><strong>{health?.synchronization.failed ?? "—"}</strong></div>

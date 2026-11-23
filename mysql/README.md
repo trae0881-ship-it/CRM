@@ -91,6 +91,12 @@ npm run mysql:api
 
 `GET /health/live` returns only process liveness. `GET /health/db`, `POST /sync/replay`, and `POST /sync/reconcile` require a valid Supabase access token whose active database membership has the `super_admin` role. The app's Database monitoring view calls these endpoints. Responses contain connection booleans and safe error codes, never connection settings or raw database messages.
 
+The Database monitoring view also shows allocated Supabase database size and per-public-table/index sizes, plus MySQL replica table sizes from `information_schema`. Supabase size details require migration `20261123143500_platform_database_usage_and_exports.sql`; it is checked against the verified active Super Admin before returning metrics. This does not measure hosting-provider bandwidth. Hostinger, Vercel, or Railway usage requires a separate provider-specific API integration and is not currently connected.
+
+`GET /database/export` downloads a streamed, table-wise JSON **business-data export** from the server-verified public-table allowlist in `schemas/entities.mjs`. It paginates records, strips credential-shaped fields, excludes Auth users and private integration-secret/state tables, and records the result in `platform_data_export_audit`. Only verified Super Admins can use it, with one export per five minutes per admin. Apply migration `20261123143500_platform_database_usage_and_exports.sql` first. The export is not a physical Supabase backup, does not include table DDL, indexes, policies, Auth accounts or secrets, and is not by itself a complete restore package. Use the provider's managed encrypted backup/PITR for disaster recovery.
+
+Destination database migration is a later phase. Do not enter destination passwords in the browser or commit them; any future admin-form flow must send credentials only to the backend and encrypt them using a key held in the deployment secret manager. The current Supabase/PostgreSQL remains authoritative; MySQL is a replica. CockroachDB and Firebase/Firestore are not currently supported as application backends.
+
 Use the Super Admin UI's organization-specific **Retry failed** action, or:
 
 ```powershell

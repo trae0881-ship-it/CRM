@@ -31,6 +31,10 @@ const compositeKeys = {
   google_sheet_source_rows: ["integration_id", "source_row_key"],
 };
 
+export const ENTITY_PRIMARY_KEYS = Object.fromEntries(
+  ENTITY_TABLES.map((entityType) => [entityType, compositeKeys[entityType] ?? ["id"]]),
+);
+
 export function sourceRecordKey(entityType, payload) {
   if (payload.id !== undefined && payload.id !== null) return String(payload.id);
   const fields = compositeKeys[entityType];

@@ -75,6 +75,25 @@ export async function countSynchronizedRecords() {
   return rows.map((row) => ({ entityType: row.entity_type, records: Number(row.records), tombstones: Number(row.tombstones) }));
 }
 
+export async function getMySqlStorageUsage() {
+  const [rows] = await getPool().query(
+    `SELECT table_name, data_length, index_length
+       FROM information_schema.tables
+      WHERE table_schema = DATABASE()
+      ORDER BY data_length + index_length DESC, table_name`,
+  );
+  const tables = rows.map((row) => ({
+    tableName: String(row.table_name),
+    tableBytes: Number(row.data_length ?? 0),
+    indexBytes: Number(row.index_length ?? 0),
+    totalBytes: Number(row.data_length ?? 0) + Number(row.index_length ?? 0),
+  }));
+  return {
+    databaseBytes: tables.reduce((total, table) => total + table.totalBytes, 0),
+    tables,
+  };
+}
+
 export async function countEntityRecords(entityType, organizationId) {
   const table = assertEntity(entityType);
   const scopedOrganizationId = organizationId === "00000000-0000-0000-0000-000000000000" ? null : organizationId;

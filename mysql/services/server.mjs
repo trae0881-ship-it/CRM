@@ -5,7 +5,8 @@ import { pathToFileURL } from "node:url";
 import { getRuntimeConfig, getSupabaseServerConfig } from "../config/env.mjs";
 import { checkMySqlConnection, closeMySqlPool } from "../config/mysql.mjs";
 import { getSupabaseAdmin, verifyPlatformSuperAdmin } from "../config/supabase.mjs";
-import { countSynchronizedByOrganization, countSynchronizedRecords, getMySqlSyncSummary } from "../repositories/records.mjs";
+import { countSynchronizedByOrganization, countSynchronizedRecords, getMySqlStorageUsage, getMySqlSyncSummary } from "../repositories/records.mjs";
+import { ENTITY_PRIMARY_KEYS, ENTITY_TABLES, EXCLUDED_TABLES, stripSecrets } from "../schemas/entities.mjs";
 import { normalizeHostname, verifyDomainRecords } from "./domain-verification.mjs";
 import { createRateLimiter, publicPricingPlan, validateContactPayload } from "./public-website.mjs";
 import { parsePlatformUserFilters, validatePlatformUserEdit, validatePlatformUserInput } from "./platform-users.mjs";
@@ -19,6 +20,8 @@ const applicationRouteRegistryUrl = new URL("../../shared/application-routes.jso
 const allowContactSubmission = createRateLimiter();
 const allowDomainVerification = createRateLimiter({ limit: 5, windowMs: 15 * 60 * 1000 });
 const allowActorDomainVerification = createRateLimiter({ limit: 30, windowMs: 15 * 60 * 1000 });
+const allowDatabaseExport = createRateLimiter({ limit: 1, windowMs: 5 * 60 * 1000 });
+const exportPageSize = 500;
 
 const json = (response, status, body, origin) => {
   const headers = { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" };
@@ -640,8 +643,9 @@ async function platformUserRequest(request, response, url, origin) {
   }
 }
 
-async function databaseStatus() {
+async function databaseStatus(actorUserId) {
   let supabaseConnected = false;
+  let supabaseUsage = { databaseBytes: null, tables: [], errorCode: "usage_unavailable" };
   let outbox = null;
   let organizations = [];
   try {
@@ -649,14 +653,28 @@ async function databaseStatus() {
     const { error } = await admin.from("organizations").select("id", { head: true, count: "exact" }).limit(1);
     if (error) throw error;
     supabaseConnected = true;
-    const { data: health, error: healthError } = await admin.rpc("mysql_sync_health");
+    const [{ data: health, error: healthError }, { data: usage, error: usageError }] = await Promise.all([
+      admin.rpc("mysql_sync_health"),
+      admin.rpc("platform_database_usage", { target_actor: actorUserId }),
+    ]);
     if (!healthError) outbox = health;
+    if (!usageError && usage) {
+      supabaseUsage = {
+        databaseBytes: Number(usage.databaseBytes ?? usage.database_bytes ?? 0),
+        tables: Array.isArray(usage.tables) ? usage.tables : [],
+        errorCode: null,
+      };
+    } else if (usageError) {
+      supabaseUsage.errorCode = safeCode(usageError);
+    }
   } catch (error) {
     outbox = { errorCode: safeCode(error) };
+    supabaseUsage.errorCode = safeCode(error);
   }
 
   let mysqlConnected = false;
   let mysqlErrorCode = null;
+  let mysqlUsage = { databaseBytes: null, tables: [], errorCode: "usage_unavailable" };
   let totalRecords = [];
   let organizationRecords = [];
   let mysqlSyncSummary = { totalEvents: 0, completedEvents: 0, lastSuccessfulSyncAt: null };
@@ -668,6 +686,11 @@ async function databaseStatus() {
         countSynchronizedByOrganization(),
         getMySqlSyncSummary(),
       ]);
+      try {
+        mysqlUsage = { ...(await getMySqlStorageUsage()), errorCode: null };
+      } catch (error) {
+        mysqlUsage.errorCode = safeCode(error);
+      }
     }
   } catch (error) {
     mysqlErrorCode = safeCode(error);
@@ -690,8 +713,8 @@ async function databaseStatus() {
     };
   });
   return {
-    supabase: { connected: supabaseConnected, errorCode: supabaseConnected ? null : outbox?.errorCode ?? "connection_failed" },
-    mysql: { connected: mysqlConnected, errorCode: mysqlErrorCode },
+    supabase: { connected: supabaseConnected, errorCode: supabaseConnected ? null : outbox?.errorCode ?? "connection_failed", ...supabaseUsage },
+    mysql: { connected: mysqlConnected, errorCode: mysqlErrorCode, ...mysqlUsage },
     synchronization: {
       available: Boolean(outbox && !outbox.errorCode),
       pending: Number(outbox?.pending ?? 0),
@@ -705,6 +728,101 @@ async function databaseStatus() {
       byOrganization: organizationStatus,
     },
   };
+}
+
+async function writeDownloadChunk(response, value) {
+  if (response.destroyed) throw new Error("database_export_client_disconnected");
+  await new Promise((resolve, reject) => {
+    response.write(value, (error) => error ? reject(error) : resolve());
+  });
+}
+
+async function streamPlatformDataExport(response, corsOrigin, actorUserId) {
+  const admin = getSupabaseAdmin();
+  for (let offset = 0; offset < ENTITY_TABLES.length; offset += 5) {
+    const batch = ENTITY_TABLES.slice(offset, offset + 5);
+    const checks = await Promise.all(batch.map(async (table) => {
+      const { error } = await admin.from(table).select("*", { head: true }).limit(0);
+      return error ? { table, error } : null;
+    }));
+    const failed = checks.find(Boolean);
+    if (failed) {
+      const error = new Error(`database_export_table_unavailable:${failed.table}:${safeCode(failed.error)}`);
+      error.code = "database_export_table_unavailable";
+      throw error;
+    }
+  }
+
+  const { data: audit, error: auditError } = await admin.from("platform_data_export_audit")
+    .insert({ actor_user_id: actorUserId, status: "started" })
+    .select("id")
+    .single();
+  if (auditError) throw auditError;
+
+  const rowCounts = {};
+  const exportedAt = new Date().toISOString();
+  response.writeHead(200, {
+    "content-type": "application/json; charset=utf-8",
+    "content-disposition": `attachment; filename="adometa-data-export-${exportedAt.slice(0, 10)}.json"`,
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    ...(corsOrigin ? {
+      "access-control-allow-origin": corsOrigin,
+      "access-control-allow-headers": "authorization, content-type",
+      "access-control-allow-methods": "GET, POST, PATCH, DELETE, OPTIONS",
+      vary: "Origin",
+    } : {}),
+  });
+
+  try {
+    await writeDownloadChunk(response, JSON.stringify({
+      format: "adometa-crm-data-export",
+      version: 1,
+      exportedAt,
+      consistency: "Paginated logical export; writes may continue while the export is running.",
+      includedTables: ENTITY_TABLES,
+      excludedTables: EXCLUDED_TABLES,
+    }).slice(0, -1) + ',"tables":{');
+
+    for (let tableIndex = 0; tableIndex < ENTITY_TABLES.length; tableIndex += 1) {
+      const table = ENTITY_TABLES[tableIndex];
+      await writeDownloadChunk(response, `${tableIndex ? "," : ""}${JSON.stringify(table)}:[`);
+      let rowCount = 0;
+      for (let from = 0; ; from += exportPageSize) {
+        let query = admin.from(table).select("*");
+        for (const key of ENTITY_PRIMARY_KEYS[table]) query = query.order(key, { ascending: true });
+        const { data, error } = await query.range(from, from + exportPageSize - 1);
+        if (error) {
+          const exportError = new Error(`database_export_table_failed:${table}:${safeCode(error)}`);
+          exportError.code = "database_export_table_failed";
+          throw exportError;
+        }
+        const rows = data ?? [];
+        if (rows.length) {
+          const serializedRows = rows.map((row) => JSON.stringify(stripSecrets(row))).join(",");
+          await writeDownloadChunk(response, `${rowCount ? "," : ""}${serializedRows}`);
+          rowCount += rows.length;
+        }
+        if (rows.length < exportPageSize) break;
+      }
+      rowCounts[table] = rowCount;
+      await writeDownloadChunk(response, "]");
+    }
+
+    await writeDownloadChunk(response, `},"rowCounts":${JSON.stringify(rowCounts)}}\n`);
+    const { error: completeError } = await admin.from("platform_data_export_audit")
+      .update({ status: "completed", row_counts: rowCounts, completed_at: new Date().toISOString() })
+      .eq("id", audit.id);
+    if (completeError) throw completeError;
+    response.end();
+  } catch (error) {
+    const { error: auditUpdateError } = await admin.from("platform_data_export_audit")
+      .update({ status: "failed", row_counts: rowCounts, error_code: safeCode(error), completed_at: new Date().toISOString() })
+      .eq("id", audit.id);
+    if (auditUpdateError) console.error("Database export audit could not be updated:", safeCode(auditUpdateError));
+    if (!response.destroyed) response.destroy();
+    throw error;
+  }
 }
 
 function escapeXml(value) {
@@ -849,8 +967,24 @@ export function createDatabaseServer() {
     if (url.pathname === "/health/db" && request.method === "GET") {
       const access = await platformActor(request);
       if (access.response) return json(response, access.response.status, access.response.body, corsOrigin);
-      try { return json(response, 200, await databaseStatus(), corsOrigin); }
+      try { return json(response, 200, await databaseStatus(access.actor.userId), corsOrigin); }
       catch (error) { return json(response, 503, { error: "Database health is unavailable", errorCode: safeCode(error) }, corsOrigin); }
+    }
+
+    if (request.method === "GET" && url.pathname === "/database/export") {
+      const access = await platformActor(request);
+      if (access.response) return json(response, access.response.status, access.response.body, corsOrigin);
+      if (!allowDatabaseExport(access.actor.userId)) {
+        return json(response, 429, { error: "A data export was recently requested. Please wait five minutes before retrying." }, corsOrigin);
+      }
+      try {
+        await streamPlatformDataExport(response, corsOrigin, access.actor.userId);
+      } catch (error) {
+        if (!response.headersSent) {
+          return json(response, 503, { error: "The CRM data export could not be completed.", errorCode: safeCode(error) }, corsOrigin);
+        }
+      }
+      return;
     }
 
     if ((url.pathname === "/sync/replay" || url.pathname === "/sync/reconcile") && request.method === "POST") {

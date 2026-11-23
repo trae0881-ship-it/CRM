@@ -38,6 +38,7 @@ test("database health and organization operations reject requests without a veri
   try {
     for (const [path, method] of [
       ["/health/db", "GET"],
+      ["/database/export", "GET"],
       ["/sync/replay", "POST"],
       ["/sync/reconcile", "POST"],
     ]) {

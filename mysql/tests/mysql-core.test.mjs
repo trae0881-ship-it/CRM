@@ -120,3 +120,33 @@ test("database error reporting exposes a safe code instead of an error message",
   assert.equal(code, "ER_ACCESS_DENIED_ERROR");
   assert.doesNotMatch(code, /password|secret-host/);
 });
+
+test("database usage reports allocated bytes for configured MySQL tables", async () => {
+  const records = await readFile(new URL("../repositories/records.mjs", import.meta.url), "utf8");
+  assert.match(records, /information_schema\.tables/);
+  assert.match(records, /data_length \+ index_length/);
+  assert.match(records, /databaseBytes:/);
+  assert.match(records, /tableBytes:/);
+  assert.match(records, /indexBytes:/);
+});
+
+test("database export is super-admin guarded, table allowlisted, streamed, secret-filtered, and audited", async () => {
+  const server = await readFile(new URL("../services/server.mjs", import.meta.url), "utf8");
+  const entities = await readFile(new URL("../schemas/entities.mjs", import.meta.url), "utf8");
+  const migration = await readFile(new URL("../../supabase/migrations/20261123143500_platform_database_usage_and_exports.sql", import.meta.url), "utf8");
+  const view = await readFile(new URL("../../src/components/DatabaseMonitoringView.tsx", import.meta.url), "utf8");
+  assert.match(server, /url\.pathname === "\/database\/export"/);
+  assert.match(server, /streamPlatformDataExport\(response, corsOrigin, access\.actor\.userId\)/);
+  assert.match(server, /from\("platform_data_export_audit"\)/);
+  assert.match(server, /rows\.map\(\(row\) => JSON\.stringify\(stripSecrets\(row\)\)\)/);
+  assert.match(server, /exportPageSize = 500/);
+  assert.match(entities, /export const ENTITY_TABLES/);
+  assert.match(entities, /export const EXCLUDED_TABLES/);
+  assert.match(view, /Download all CRM tables/);
+  assert.match(view, /window\.confirm/);
+  assert.match(view, /response\.blob\(\)/);
+  assert.match(view, /Hosting bandwidth/);
+  assert.match(migration, /platform_database_usage\(target_actor uuid\)/);
+  assert.match(migration, /role = 'super_admin'/);
+  assert.match(migration, /revoke all on public\.platform_data_export_audit from public, anon, authenticated/i);
+});

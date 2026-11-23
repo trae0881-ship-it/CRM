@@ -46,7 +46,7 @@ test("documentation routes enforce the verified active membership role matrix", 
 
 test("all requested documentation chapters, WhatsApp help articles, and metadata exist", () => {
   assert.equal(content.documentation.salesperson.length, 18);
-  assert.equal(content.documentation.saas_super_admin.length, 17);
+  assert.equal(content.documentation.saas_super_admin.length, 18);
   assert.equal(content.whatsappHelpArticleIds.length, 12);
   assert.equal(content.documentation.salesperson[0].title, "Getting Started");
   assert.equal(content.documentation.organization_admin.find((item) => item.id === "audit-logs").title, "Audit Logs");
